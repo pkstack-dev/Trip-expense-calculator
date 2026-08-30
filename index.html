@@ -111,31 +111,45 @@
       };
 
       // ----------------------------------------------------
-      // ติดตามสถานะ Login และโหลดประวัติ
+      // ติดตามสถานะ Login และโหลดประวัติ (พร้อมจัดการ Unsubscribe Realtime)
       // ----------------------------------------------------
       useEffect(() => {
-        const unsubscribe = auth.onAuthStateChanged((currentUser) => {
+        let unsubscribeHistory = null;
+
+        const unsubscribeAuth = auth.onAuthStateChanged((currentUser) => {
           setUser(currentUser);
           setLoading(false);
 
+          // ยกเลิก Realtime listener เดิมก่อนเสมอเพื่อป้องกัน Permission Error ตอน Logout
+          if (unsubscribeHistory) {
+            unsubscribeHistory();
+            unsubscribeHistory = null;
+          }
+
           if (currentUser) {
             const historyRef = db.collection("users").doc(currentUser.uid).collection("trips");
-            historyRef.orderBy("createdAt", "desc").onSnapshot((snapshot) => {
+            unsubscribeHistory = historyRef.orderBy("createdAt", "desc").onSnapshot((snapshot) => {
               const tripsData = snapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data()
               }));
               setHistory(tripsData);
             }, (error) => {
-              console.error("Firestore error:", error);
-              showAlert("ไม่สามารถดึงข้อมูลประวัติได้ กรุณาตรวจ Firestore Rules", "error");
+              // แจ้งเตือนเฉพาะกรณีที่ยังล็อกอินอยู่ (ไม่เตือนตอนกำลังตัดการเชื่อมต่อตอนออกจากระบบ)
+              if (auth.currentUser) {
+                console.error("Firestore error:", error);
+                showAlert("ไม่สามารถดึงข้อมูลประวัติได้ กรุณาตรวจ Firestore Rules", "error");
+              }
             });
           } else {
             setHistory([]);
           }
         });
 
-        return () => unsubscribe();
+        return () => {
+          if (unsubscribeHistory) unsubscribeHistory();
+          unsubscribeAuth();
+        };
       }, []);
 
       // Google Sign-In with robust error handling
@@ -158,9 +172,13 @@
       };
 
       // Logout
-      const handleLogout = () => {
-        auth.signOut();
-        showAlert("ออกจากระบบเรียบร้อยแล้ว", "info");
+      const handleLogout = async () => {
+        try {
+          await auth.signOut();
+          showAlert("ออกจากระบบเรียบร้อยแล้ว", "info");
+        } catch (err) {
+          showAlert("ออกจากระบบไม่สำเร็จ: " + err.message, "error");
+        }
       };
 
       useEffect(() => {
