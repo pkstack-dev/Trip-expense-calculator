@@ -29,7 +29,7 @@
 
   <script type="text/babel">
     // ----------------------------------------------------
-    // 1. Firebase Configuration (ใส่ Config ของคุณเรียบร้อยแล้ว)
+    // Firebase Configuration
     // ----------------------------------------------------
     const firebaseConfig = {
       apiKey: "AIzaSyCwvoRRmlGk6C-S2PbsZbkm2P5B2E98Hks",
@@ -50,7 +50,7 @@
 
     const { useState, useMemo, useEffect } = React;
 
-    // Custom Icon Wrapper component for Lucide
+    // Custom Icon Wrapper
     const Icon = ({ name, className = "w-4 h-4" }) => {
       useEffect(() => {
         if (window.lucide) {
@@ -60,10 +60,30 @@
       return <i data-lucide={name} className={className}></i>;
     };
 
+    // รายการค่าใช้จ่ายยอดนิยมสำหรับเลือกด่วน
+    const POPULAR_CATEGORIES = [
+      { label: "🍲 ค่าอาหาร", title: "ค่าอาหาร" },
+      { label: "🍻 ค่าเครื่องดื่ม/เบียร์", title: "ค่าเครื่องดื่ม/เบียร์" },
+      { label: "🚗 ค่าน้ำมัน/ค่ารถ", title: "ค่าน้ำมัน/ค่าเดินทาง" },
+      { label: "🏨 ค่าที่พัก/โรงแรม", title: "ค่าที่พัก" },
+      { label: "☕ ค่าคาเฟ่/ของว่าง", title: "ค่ากาแฟ/ขนม" },
+      { label: "🎫 ค่าบัตร/ค่าเข้าชม", title: "ค่าตั๋ว/กิจกรรม" },
+      { label: "🛒 ของใช้ส่วนกลาง", title: "ของใช้ส่วนกลาง" }
+    ];
+
     function App() {
       // User Auth State
       const [user, setUser] = useState(null);
       const [loading, setLoading] = useState(true);
+
+      // Current Trip Meta
+      const getDefaultTripName = () => {
+        const today = new Date();
+        return `ทริปวันที่ ${today.toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' })}`;
+      };
+
+      const [currentTripId, setCurrentTripId] = useState(null); // หากโหลดทริปเดิมมาแก้
+      const [tripName, setTripName] = useState(getDefaultTripName());
 
       // Data States
       const [friends, setFriends] = useState([]);
@@ -83,9 +103,15 @@
       const [showResetModal, setShowResetModal] = useState(false);
       const [showHistoryModal, setShowHistoryModal] = useState(false);
       const [saving, setSaving] = useState(false);
+      const [alertMsg, setAlertMsg] = useState(null);
+
+      const showAlert = (message, type = 'info') => {
+        setAlertMsg({ message, type });
+        setTimeout(() => setAlertMsg(null), 4000);
+      };
 
       // ----------------------------------------------------
-      // 2. ดักจับสถานะการ Login และโหลดข้อมูลจาก Cloud Firestore
+      // ติดตามสถานะ Login และโหลดประวัติ
       // ----------------------------------------------------
       useEffect(() => {
         const unsubscribe = auth.onAuthStateChanged((currentUser) => {
@@ -93,7 +119,6 @@
           setLoading(false);
 
           if (currentUser) {
-            // ดึงข้อมูลทริปย้อนหลังของผู้ใช้
             const historyRef = db.collection("users").doc(currentUser.uid).collection("trips");
             historyRef.orderBy("createdAt", "desc").onSnapshot((snapshot) => {
               const tripsData = snapshot.docs.map(doc => ({
@@ -101,6 +126,9 @@
                 ...doc.data()
               }));
               setHistory(tripsData);
+            }, (error) => {
+              console.error("Firestore error:", error);
+              showAlert("ไม่สามารถดึงข้อมูลประวัติได้ กรุณาตรวจ Firestore Rules", "error");
             });
           } else {
             setHistory([]);
@@ -110,19 +138,29 @@
         return () => unsubscribe();
       }, []);
 
-      // Google Sign-In
+      // Google Sign-In with robust error handling
       const handleGoogleLogin = async () => {
         const provider = new firebase.auth.GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: 'select_account' });
         try {
           await auth.signInWithPopup(provider);
+          showAlert("เข้าสู่ระบบสำเร็จ!", "success");
         } catch (error) {
-          alert("ไม่สามารถเข้าสู่ระบบได้: " + error.message);
+          console.error("Google Auth Error:", error);
+          if (error.code === 'auth/popup-blocked') {
+            showAlert("เบราว์เซอร์บล็อกป๊อปอัป กรุณาอนุญาตป๊อปอัปหรือเปิดใน Google Chrome", "error");
+          } else if (error.code === 'auth/unauthorized-domain') {
+            showAlert("โดเมนนี้ยังไม่ได้รับอนุญาตใน Firebase Console > Authentication > Settings", "error");
+          } else {
+            showAlert(`เข้าสู่ระบบไม่สำเร็จ: ${error.message}`, "error");
+          }
         }
       };
 
       // Logout
       const handleLogout = () => {
         auth.signOut();
+        showAlert("ออกจากระบบเรียบร้อยแล้ว", "info");
       };
 
       useEffect(() => {
@@ -139,7 +177,7 @@
         if (!newFriendName.trim()) return;
 
         const newFriend = {
-          id: Date.now().toString(),
+          id: 'friend_' + Date.now().toString(),
           name: newFriendName.trim(),
           headcount: Math.max(1, parseInt(newFriendHeadcount) || 1),
         };
@@ -191,11 +229,12 @@
         e.preventDefault();
         const numAmount = parseFloat(expenseAmount);
         if (!expenseTitle.trim() || isNaN(numAmount) || numAmount <= 0 || !expensePayerId || selectedParticipants.length === 0) {
+          showAlert("กรุณากรอกข้อมูลรายการและจำนวนเงินให้ถูกต้อง", "error");
           return;
         }
 
         const newExpense = {
-          id: Date.now().toString(),
+          id: 'exp_' + Date.now().toString(),
           title: expenseTitle.trim(),
           amount: numAmount,
           payerId: expensePayerId,
@@ -302,17 +341,18 @@
         };
       }, [friends, expenses]);
 
-      // สรุปข้อความ
+      // สรุปข้อความส่ง LINE
       const generateSummaryText = () => {
-        let summaryText = `🧾 *สรุปยอดหารค่าใช้จ่าย*\n`;
+        const finalTripName = tripName.trim() || getDefaultTripName();
+        let summaryText = `🏕️ *สรุปค่าใช้จ่าย: ${finalTripName}*\n`;
         summaryText += `💰 ยอดรวมทั้งหมด: ${calculations.totalExpenseAmount.toLocaleString()} บาท\n\n`;
         
-        summaryText += `👥 *รายละเอียดต่อคน/ครอบครัว:*\n`;
+        summaryText += `👥 *รายละเอียดต่อคน/กลุ่ม:*\n`;
         calculations.friendTotals.forEach(f => {
           summaryText += `- ${f.name} (${f.headcount} คน): จ่ายแล้ว ${f.paid.toLocaleString()} บ. | ค่าใช้จ่ายจริง ${f.shouldPay.toLocaleString('th-TH', { maximumFractionDigits: 2 })} บ.\n`;
         });
 
-        summaryText += `\n💸 *สรุปการโอนเงิน (ใครโอนให้ใคร):*\n`;
+        summaryText += `\n💸 *สรุปการเคลียร์ยอด (ใครโอนให้ใคร):*\n`;
         if (calculations.settlements.length === 0) {
           summaryText += `✨ เคลียร์ยอดครบแล้ว ไม่มีใครต้องโอนเพิ่ม!\n`;
         } else {
@@ -324,109 +364,178 @@
       };
 
       // ----------------------------------------------------
-      // 3. บันทึกทริปลง Cloud Firestore
+      // บันทึก หรือ แก้ไขทริปใน Cloud Firestore
       // ----------------------------------------------------
-      const handleSaveToCloud = async () => {
+      const handleSaveToCloud = async (saveAsNew = false) => {
         if (!user) {
-          alert("กรุณาเข้าสู่ระบบด้วย Google ก่อนบันทึกประวัติครับ");
+          showAlert("กรุณาเข้าสู่ระบบด้วย Google ก่อนบันทึกทริป", "error");
           return;
         }
-        if (expenses.length === 0) {
-          alert("ยังไม่มีรายการค่าใช้จ่ายให้บันทึก");
+        if (friends.length === 0 && expenses.length === 0) {
+          showAlert("ยังไม่มีข้อมูลเพื่อนหรือค่าใช้จ่ายให้บันทึก", "error");
           return;
         }
 
         setSaving(true);
+        const finalTripName = tripName.trim() || getDefaultTripName();
+        const tripData = {
+          tripName: finalTripName,
+          date: new Date().toLocaleString('th-TH'),
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          totalAmount: calculations.totalExpenseAmount,
+          summaryText: generateSummaryText(),
+          friendsCount: friends.length,
+          expensesCount: expenses.length,
+          // บันทึก Raw Data สำหรับการดึงมาแก้ไขย้อนหลัง
+          friendsData: friends,
+          expensesData: expenses
+        };
+
         try {
-          await db.collection("users").doc(user.uid).collection("trips").add({
-            date: new Date().toLocaleString('th-TH'),
-            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-            totalAmount: calculations.totalExpenseAmount,
-            summaryText: generateSummaryText(),
-            friendsCount: friends.length,
-            expensesCount: expenses.length
-          });
-          alert("☁️ บันทึกประวัติลง Cloud เรียบร้อยแล้ว!");
+          const userTripsRef = db.collection("users").doc(user.uid).collection("trips");
+          
+          if (currentTripId && !saveAsNew) {
+            // อัปเดตทริปเดิม
+            await userTripsRef.doc(currentTripId).set(tripData, { merge: true });
+            showAlert(`☁️ อัปเดต "${finalTripName}" สำเร็จ!`, "success");
+          } else {
+            // สร้างทริปใหม่
+            tripData.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+            const newDoc = await userTripsRef.add(tripData);
+            setCurrentTripId(newDoc.id);
+            showAlert(`☁️ บันทึก "${finalTripName}" เป็นทริปใหม่เรียบร้อย!`, "success");
+          }
         } catch (err) {
-          alert("เกิดข้อผิดพลาดในการบันทึก: " + err.message);
+          console.error("Save error:", err);
+          showAlert("เกิดข้อผิดพลาดในการบันทึก: " + err.message, "error");
         } finally {
           setSaving(false);
         }
       };
 
-      // ลบประวัติใน Cloud
-      const handleDeleteHistoryRecord = async (tripId) => {
+      // โหลดข้อมูลทริปเดิมกลับมาแก้ไข
+      const handleLoadTripForEdit = (record) => {
+        setTripName(record.tripName || getDefaultTripName());
+        setFriends(record.friendsData || []);
+        setExpenses(record.expensesData || []);
+        setCurrentTripId(record.id);
+        setShowHistoryModal(false);
+        showAlert(`📥 โหลดข้อมูล "${record.tripName || 'ทริป'}" เพื่อแก้ไขเรียบร้อย`, "info");
+      };
+
+      // ลบประวัติ
+      const handleDeleteHistoryRecord = async (tripId, e) => {
+        e.stopPropagation();
         if (!user) return;
-        if (confirm("คุณต้องการลบประวัตินี้หรือไม่?")) {
-          await db.collection("users").doc(user.uid).collection("trips").doc(tripId).delete();
+        if (window.confirm("คุณต้องการลบประวัตินี้หรือไม่?")) {
+          try {
+            await db.collection("users").doc(user.uid).collection("trips").doc(tripId).delete();
+            if (currentTripId === tripId) {
+              setCurrentTripId(null);
+            }
+            showAlert("ลบประวัติเรียบร้อยแล้ว", "info");
+          } catch (err) {
+            showAlert("ไม่สามารถลบได้: " + err.message, "error");
+          }
         }
       };
 
-      const handleCopySummary = async () => {
+      const handleCopySummary = () => {
         const summaryText = generateSummaryText();
+        const textarea = document.createElement("textarea");
+        textarea.value = summaryText;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
         try {
-          await navigator.clipboard.writeText(summaryText);
+          document.execCommand("copy");
           setCopied(true);
           setTimeout(() => setCopied(false), 2000);
+          showAlert("คัดลอกสรุปข้อความแล้ว นำไปส่งลง LINE ได้เลย!", "success");
         } catch (err) {
-          alert("คัดลอกไม่สำเร็จ โปรดคัดลอกด้วยตนเอง");
+          showAlert("คัดลอกไม่สำเร็จ โปรดลองอีกครั้ง", "error");
+        } finally {
+          document.body.removeChild(textarea);
         }
       };
 
       const confirmReset = () => {
         setFriends([]);
         setExpenses([]);
+        setCurrentTripId(null);
+        setTripName(getDefaultTripName());
         setShowResetModal(false);
+        showAlert("ล้างข้อมูลปัจจุบันเรียบร้อยแล้ว", "info");
       };
 
       return (
-        <div className="min-h-screen pb-16">
+        <div className="min-h-screen pb-20">
+          {/* Toast Notification */}
+          {alertMsg && (
+            <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-xl shadow-2xl flex items-center gap-2 text-sm border animate-bounce ${
+              alertMsg.type === 'error' ? 'bg-rose-900/90 border-rose-500 text-rose-100' :
+              alertMsg.type === 'success' ? 'bg-emerald-900/90 border-emerald-500 text-emerald-100' :
+              'bg-slate-800 border-slate-600 text-slate-100'
+            }`}>
+              <Icon name={alertMsg.type === 'error' ? 'alert-circle' : alertMsg.type === 'success' ? 'check-circle' : 'info'} className="w-5 h-5" />
+              <span>{alertMsg.message}</span>
+            </div>
+          )}
+
           {/* Header */}
-          <header className="bg-slate-800 border-b border-slate-700 sticky top-0 z-40 backdrop-blur-md bg-opacity-90">
-            <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
+          <header className="bg-slate-800/95 border-b border-slate-700 sticky top-0 z-40 backdrop-blur-md">
+            <div className="max-w-5xl mx-auto px-4 py-3.5 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="p-2.5 bg-emerald-500/20 text-emerald-400 rounded-xl border border-emerald-500/30">
                   <Icon name="pie-chart" className="w-6 h-6" />
                 </div>
                 <div>
-                  <h1 className="text-xl font-bold bg-gradient-to-r from-emerald-400 to-teal-300 bg-clip-text text-transparent">
-                    หารค่าใช้จ่ายทริปเพื่อน
+                  <h1 className="text-xl font-bold bg-gradient-to-r from-emerald-400 to-teal-300 bg-clip-text text-transparent flex items-center gap-2">
+                    หารค่าใช้จ่ายทริป
+                    {currentTripId && (
+                      <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-full font-normal">
+                        โหมดแก้ไขทริป
+                      </span>
+                    )}
                   </h1>
-                  <p className="text-xs text-slate-400">คำนวณหารค่าใช้จ่าย + เซฟประวัติผ่าน Google</p>
+                  <p className="text-xs text-slate-400">คำนวณง่าย หารแฟร์ เซฟลง Cloud แก้ไขได้ตลอดเวลา</p>
                 </div>
               </div>
 
-              {/* Login / Profile Section */}
-              <div className="flex items-center gap-3">
+              {/* Login & Actions */}
+              <div className="flex items-center gap-2">
                 {loading ? (
                   <span className="text-xs text-slate-400">กำลังโหลด...</span>
                 ) : user ? (
                   <div className="flex items-center gap-2">
-                    <img src={user.photoURL} alt={user.displayName} className="w-8 h-8 rounded-full border border-emerald-400" />
                     <button 
                       onClick={() => setShowHistoryModal(true)}
-                      className="bg-slate-700 hover:bg-slate-600 text-slate-200 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 text-xs font-medium"
+                      className="bg-slate-700 hover:bg-slate-600 text-slate-200 px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 text-xs font-medium border border-slate-600 shadow-sm"
                     >
-                      <Icon name="history" className="w-4 h-4 text-amber-400" />
-                      <span>ประวัติ ({history.length})</span>
+                      <Icon name="folder-clock" className="w-4 h-4 text-amber-400" />
+                      <span>ประวัติทริป ({history.length})</span>
                     </button>
-                    <button onClick={handleLogout} className="text-xs text-slate-400 hover:text-rose-400 underline">
-                      ออก
-                    </button>
+                    <div className="flex items-center gap-1.5 bg-slate-800 border border-slate-700 rounded-xl p-1 pr-2">
+                      <img src={user.photoURL || 'https://via.placeholder.com/32'} alt={user.displayName} className="w-6 h-6 rounded-full border border-emerald-400 object-cover" />
+                      <button onClick={handleLogout} className="text-xs text-slate-400 hover:text-rose-400" title="ออกจากระบบ">
+                        <Icon name="log-out" className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <button 
                     onClick={handleGoogleLogin}
                     className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-2 rounded-xl flex items-center gap-2 transition-all shadow-lg"
                   >
-                    <Icon name="log-in" className="w-4 h-4" /> Sign in with Google
+                    <Icon name="log-in" className="w-4 h-4" /> เข้าสู่ระบบ Google
                   </button>
                 )}
 
                 <button 
                   onClick={() => setShowResetModal(true)}
-                  className="text-slate-400 hover:text-rose-400 p-2 rounded-lg hover:bg-slate-700/50 transition-colors flex items-center gap-1 text-xs"
-                  title="ล้างข้อมูลทั้งหมด"
+                  className="text-slate-400 hover:text-rose-400 p-2 rounded-xl hover:bg-slate-700/50 transition-colors"
+                  title="เริ่มทริปใหม่ / ล้างข้อมูล"
                 >
                   <Icon name="rotate-ccw" className="w-4 h-4" />
                 </button>
@@ -434,7 +543,39 @@
             </div>
           </header>
 
-          <main className="max-w-5xl mx-auto px-4 pt-6 space-y-8">
+          <main className="max-w-5xl mx-auto px-4 pt-6 space-y-6">
+            
+            {/* Trip Name Banner */}
+            <div className="bg-gradient-to-r from-slate-800 to-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="flex-1 w-full">
+                <label className="block text-xs font-medium text-amber-300 mb-1 flex items-center gap-1.5">
+                  <Icon name="map-pin" className="w-3.5 h-3.5" /> ชื่อทริป (หากไม่กรอกจะใช้วันที่อัตโนมัติ)
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder={getDefaultTripName()}
+                    value={tripName}
+                    onChange={(e) => setTripName(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 focus:border-amber-400 focus:ring-1 focus:ring-amber-400 rounded-xl px-3.5 py-2 text-sm font-semibold text-slate-100 outline-none placeholder-slate-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setTripName(getDefaultTripName())}
+                    className="shrink-0 px-2.5 py-2 text-xs bg-slate-700 hover:bg-slate-600 rounded-xl text-slate-300 transition-colors"
+                    title="ใช้วันที่ปัจจุบันเป็นชื่อทริป"
+                  >
+                    วันที่วันนี้
+                  </button>
+                </div>
+              </div>
+              {currentTripId && (
+                <div className="text-xs bg-amber-500/10 border border-amber-500/30 rounded-xl p-2 text-amber-300 shrink-0">
+                  กำลังแก้ไขทริปเดิมที่เซฟไว้
+                </div>
+              )}
+            </div>
+
             {/* Step 1: Manage Friends */}
             <section className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
               <div className="flex items-center justify-between mb-4">
@@ -445,7 +586,7 @@
                   </h2>
                 </div>
                 <span className="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-full font-medium">
-                  รวม {friends.reduce((acc, f) => acc + f.headcount, 0)} คน ({friends.length} กลุ่ม)
+                  รวม {friends.reduce((acc, f) => acc + f.headcount, 0)} คน ({friends.length} กลุ่ม/คน)
                 </span>
               </div>
 
@@ -453,21 +594,21 @@
                 <div className="sm:col-span-6">
                   <input
                     type="text"
-                    placeholder="ชื่อเพื่อน หรือ ชื่อกลุ่มครอบครัว..."
+                    placeholder="เช่น สมชาย, ครอบครัวเอ, หรือชื่อเล่น..."
                     value={newFriendName}
                     onChange={(e) => setNewFriendName(e.target.value)}
                     className="w-full bg-slate-900 border border-slate-700 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-xl px-4 py-2.5 text-sm outline-none"
                   />
                 </div>
                 <div className="sm:col-span-4 flex items-center bg-slate-900 border border-slate-700 rounded-xl px-3 py-1">
-                  <span className="text-xs text-slate-400 whitespace-nowrap mr-2">รับผิดชอบ:</span>
-                  <button type="button" onClick={() => setNewFriendHeadcount(Math.max(1, newFriendHeadcount - 1))} className="w-7 h-7 rounded-lg bg-slate-800 text-slate-300 flex items-center justify-center font-bold text-sm">-</button>
+                  <span className="text-xs text-slate-400 whitespace-nowrap mr-2">จำนวนคน:</span>
+                  <button type="button" onClick={() => setNewFriendHeadcount(Math.max(1, newFriendHeadcount - 1))} className="w-7 h-7 rounded-lg bg-slate-800 text-slate-300 flex items-center justify-center font-bold text-sm hover:bg-slate-700">-</button>
                   <span className="flex-1 text-center font-semibold text-sm text-indigo-300">{newFriendHeadcount} คน</span>
-                  <button type="button" onClick={() => setNewFriendHeadcount(newFriendHeadcount + 1)} className="w-7 h-7 rounded-lg bg-slate-800 text-slate-300 flex items-center justify-center font-bold text-sm">+</button>
+                  <button type="button" onClick={() => setNewFriendHeadcount(newFriendHeadcount + 1)} className="w-7 h-7 rounded-lg bg-slate-800 text-slate-300 flex items-center justify-center font-bold text-sm hover:bg-slate-700">+</button>
                 </div>
                 <div className="sm:col-span-2">
-                  <button type="submit" disabled={!newFriendName.trim()} className="w-full h-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium py-2.5 px-4 rounded-xl text-sm flex items-center justify-center gap-1.5 shadow-lg">
-                    <Icon name="user-plus" className="w-4 h-4" /> เพิ่ม
+                  <button type="submit" disabled={!newFriendName.trim()} className="w-full h-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium py-2.5 px-4 rounded-xl text-sm flex items-center justify-center gap-1.5 shadow-lg transition-all">
+                    <Icon name="user-plus" className="w-4 h-4" /> เพิ่มเพื่อน
                   </button>
                 </div>
               </form>
@@ -482,15 +623,15 @@
                     <div key={friend.id} className="bg-slate-900/80 border border-slate-700/60 rounded-xl p-3 flex items-center justify-between">
                       <div className="overflow-hidden mr-2">
                         <p className="font-medium text-slate-200 text-sm truncate">{friend.name}</p>
-                        <p className="text-xs text-indigo-400">หาร {friend.headcount} คน</p>
+                        <p className="text-xs text-indigo-400">สัดส่วน {friend.headcount} คน</p>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
                         <div className="flex items-center bg-slate-800 border border-slate-700 rounded-lg">
-                          <button onClick={() => handleUpdateHeadcount(friend.id, -1)} className="w-6 h-6 text-slate-400 flex items-center justify-center font-bold text-xs">-</button>
+                          <button onClick={() => handleUpdateHeadcount(friend.id, -1)} className="w-6 h-6 text-slate-400 hover:text-slate-200 flex items-center justify-center font-bold text-xs">-</button>
                           <span className="text-xs font-semibold px-1.5 text-slate-300">{friend.headcount}</span>
-                          <button onClick={() => handleUpdateHeadcount(friend.id, 1)} className="w-6 h-6 text-slate-400 flex items-center justify-center font-bold text-xs">+</button>
+                          <button onClick={() => handleUpdateHeadcount(friend.id, 1)} className="w-6 h-6 text-slate-400 hover:text-slate-200 flex items-center justify-center font-bold text-xs">+</button>
                         </div>
-                        <button onClick={() => handleDeleteFriend(friend.id)} className="p-1.5 text-slate-500 hover:text-rose-400">
+                        <button onClick={() => handleDeleteFriend(friend.id)} className="p-1.5 text-slate-500 hover:text-rose-400 transition-colors" title="ลบชื่อนี้">
                           <Icon name="trash-2" className="w-4 h-4" />
                         </button>
                       </div>
@@ -509,20 +650,61 @@
                 </h2>
               </div>
 
+              {/* หมวดหมู่ด่วน / เมนูสำเร็จรูป */}
+              <div className="mb-4">
+                <label className="block text-xs font-medium text-slate-400 mb-1.5">เลือกหมวดหมู่ด่วน:</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {POPULAR_CATEGORIES.map((cat, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setExpenseTitle(cat.title)}
+                      className="text-xs bg-slate-900/90 hover:bg-slate-700 text-slate-300 border border-slate-700 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1"
+                    >
+                      {cat.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <form onSubmit={handleAddExpense} className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
                   <div className="sm:col-span-5">
-                    <label className="block text-xs font-medium text-slate-400 mb-1">รายการซื้อ / ค่าใช้จ่าย</label>
-                    <input type="text" placeholder="เช่น ค่าอาหารเย็น" value={expenseTitle} onChange={(e) => setExpenseTitle(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm outline-none" />
+                    <label className="block text-xs font-medium text-slate-400 mb-1">ชื่อรายการค่าใช้จ่าย</label>
+                    <input 
+                      type="text" 
+                      placeholder="เช่น ค่ากุ้งเผา, ค่าทางด่วน..." 
+                      value={expenseTitle} 
+                      onChange={(e) => setExpenseTitle(e.target.value)} 
+                      className="w-full bg-slate-900 border border-slate-700 focus:border-emerald-500 rounded-xl px-4 py-2.5 text-sm outline-none" 
+                    />
                   </div>
                   <div className="sm:col-span-3">
                     <label className="block text-xs font-medium text-slate-400 mb-1">จำนวนเงิน (บาท)</label>
-                    <input type="number" step="any" placeholder="0.00" value={expenseAmount} onChange={(e) => setExpenseAmount(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm outline-none font-mono" />
+                    <input 
+                      type="number" 
+                      step="any" 
+                      placeholder="0.00" 
+                      value={expenseAmount} 
+                      onChange={(e) => setExpenseAmount(e.target.value)} 
+                      className="w-full bg-slate-900 border border-slate-700 focus:border-emerald-500 rounded-xl px-4 py-2.5 text-sm outline-none font-mono" 
+                    />
                   </div>
                   <div className="sm:col-span-4">
                     <label className="block text-xs font-medium text-slate-400 mb-1">ใครเป็นคนออกเงินก่อน?</label>
-                    <select value={expensePayerId} onChange={(e) => setExpensePayerId(e.target.value)} disabled={friends.length === 0} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm outline-none text-slate-200">
-                      {friends.length === 0 ? <option value="">โปรดเพิ่มชื่อเพื่อนก่อน</option> : friends.map(f => <option key={f.id} value={f.id}>{f.name} (สำรองจ่าย)</option>)}
+                    <select 
+                      value={expensePayerId} 
+                      onChange={(e) => setExpensePayerId(e.target.value)} 
+                      disabled={friends.length === 0} 
+                      className="w-full bg-slate-900 border border-slate-700 focus:border-emerald-500 rounded-xl px-3 py-2.5 text-sm outline-none text-slate-200"
+                    >
+                      {friends.length === 0 ? (
+                        <option value="">โปรดเพิ่มชื่อเพื่อนก่อน</option>
+                      ) : (
+                        friends.map(f => (
+                          <option key={f.id} value={f.id}>{f.name} (สำรองจ่าย)</option>
+                        ))
+                      )}
                     </select>
                   </div>
                 </div>
@@ -530,13 +712,30 @@
                 <div className="pt-2">
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-xs font-medium text-slate-300">ใครร่วมหารในรายการนี้บ้าง?</label>
-                    {friends.length > 0 && <button type="button" onClick={handleSelectAllParticipants} className="text-xs text-emerald-400 hover:underline">{selectedParticipants.length === friends.length ? 'ยกเลิกทั้งหมด' : 'เลือกทุกคน'}</button>}
+                    {friends.length > 0 && (
+                      <button 
+                        type="button" 
+                        onClick={handleSelectAllParticipants} 
+                        className="text-xs text-emerald-400 hover:underline"
+                      >
+                        {selectedParticipants.length === friends.length ? 'ยกเลิกทั้งหมด' : 'เลือกทุกคน'}
+                      </button>
+                    )}
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {friends.map((friend) => {
                       const isSelected = selectedParticipants.includes(friend.id);
                       return (
-                        <button key={friend.id} type="button" onClick={() => handleToggleParticipant(friend.id)} className={`px-3 py-1.5 rounded-xl text-xs font-medium flex items-center gap-1.5 border ${isSelected ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-300' : 'bg-slate-900/50 border-slate-700 text-slate-500'}`}>
+                        <button 
+                          key={friend.id} 
+                          type="button" 
+                          onClick={() => handleToggleParticipant(friend.id)} 
+                          className={`px-3 py-1.5 rounded-xl text-xs font-medium flex items-center gap-1.5 border transition-all ${
+                            isSelected 
+                              ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-300' 
+                              : 'bg-slate-900/50 border-slate-700 text-slate-500'
+                          }`}
+                        >
                           <Icon name={isSelected ? "check-square" : "square"} className="w-3.5 h-3.5" />
                           <span>{friend.name}</span>
                         </button>
@@ -545,144 +744,232 @@
                   </div>
                 </div>
 
-                <button type="submit" disabled={!expenseTitle.trim() || !expenseAmount || !expensePayerId || selectedParticipants.length === 0} className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium py-2.5 px-4 rounded-xl text-sm flex items-center justify-center gap-2 shadow-lg">
-                  <Icon name="plus" className="w-4 h-4" /> เพิ่มรายการจ่าย
+                <button 
+                  type="submit" 
+                  disabled={!expenseTitle.trim() || !expenseAmount || !expensePayerId || selectedParticipants.length === 0} 
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium py-2.5 px-4 rounded-xl text-sm flex items-center justify-center gap-2 shadow-lg transition-all"
+                >
+                  <Icon name="plus" className="w-4 h-4" /> บันทึกรายการจ่ายนี้
                 </button>
               </form>
 
+              {/* รายการจ่ายที่บันทึกแล้ว */}
               <div className="mt-6 border-t border-slate-700/60 pt-4">
                 <h3 className="text-sm font-semibold text-slate-300 mb-3 flex items-center justify-between">
-                  <span>รายการที่บันทึกแล้ว ({expenses.length})</span>
-                  <span className="text-xs text-slate-400 font-normal">ยอดรวม: <strong className="text-emerald-400 font-mono">{calculations.totalExpenseAmount.toLocaleString()}</strong> บาท</span>
+                  <span>รายการที่บันทึกแล้ว ({expenses.length} รายการ)</span>
+                  <span className="text-xs text-slate-400 font-normal">
+                    ยอดรวม: <strong className="text-emerald-400 font-mono text-sm">฿{calculations.totalExpenseAmount.toLocaleString()}</strong> บาท
+                  </span>
                 </h3>
-                <div className="space-y-2.5 max-h-80 overflow-y-auto">
-                  {expenses.map((exp) => {
-                    const payer = friends.find(f => f.id === exp.payerId);
-                    return (
-                      <div key={exp.id} className="bg-slate-900/60 border border-slate-700/50 rounded-xl p-3 flex items-center justify-between">
-                        <div>
-                          <p className="font-medium text-slate-200 text-sm">{exp.title} - <span className="text-emerald-400 font-mono">฿{exp.amount.toLocaleString()}</span></p>
-                          <p className="text-xs text-slate-400">จ่ายโดย: {payer ? payer.name : 'ไม่ระบุ'}</p>
+                
+                {expenses.length === 0 ? (
+                  <div className="text-center py-5 text-slate-500 border border-dashed border-slate-700/60 rounded-xl text-xs">
+                    ยังไม่มีรายการค่าใช้จ่าย
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                    {expenses.map((exp) => {
+                      const payer = friends.find(f => f.id === exp.payerId);
+                      const participantNames = exp.participantIds.map(pId => {
+                        const f = friends.find(fr => fr.id === pId);
+                        return f ? f.name : '';
+                      }).filter(Boolean).join(', ');
+
+                      return (
+                        <div key={exp.id} className="bg-slate-900/60 border border-slate-700/50 rounded-xl p-3 flex items-center justify-between">
+                          <div className="overflow-hidden mr-2">
+                            <p className="font-medium text-slate-200 text-sm">{exp.title} - <span className="text-emerald-400 font-mono">฿{exp.amount.toLocaleString()}</span></p>
+                            <p className="text-xs text-slate-400">
+                              จ่ายโดย: <span className="text-amber-300">{payer ? payer.name : 'ไม่ระบุ'}</span> | หาร: <span className="text-slate-300 truncate">{participantNames || 'ทุกคน'}</span>
+                            </p>
+                          </div>
+                          <button onClick={() => handleDeleteExpense(exp.id)} className="text-slate-500 hover:text-rose-400 p-1.5 transition-colors" title="ลบรายการ">
+                            <Icon name="trash-2" className="w-4 h-4" />
+                          </button>
                         </div>
-                        <button onClick={() => handleDeleteExpense(exp.id)} className="text-xs text-slate-500 hover:text-rose-400 p-1.5">
-                          <Icon name="trash-2" className="w-4 h-4" />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </section>
 
             {/* Results Section */}
             <section className="grid grid-cols-1 md:grid-cols-12 gap-6">
-              <div className="md:col-span-6 bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
-                <h2 className="text-lg font-semibold flex items-center gap-2 mb-4">
-                  <Icon name="dollar-sign" className="w-5 h-5 text-teal-400" /> สรุปยอดรายคน
-                </h2>
-                <div className="space-y-2.5">
-                  {calculations.friendTotals.map((f) => (
-                    <div key={f.id} className="bg-slate-900/80 border border-slate-700/60 rounded-xl p-3 flex items-center justify-between text-xs">
-                      <div>
-                        <p className="font-semibold text-slate-200 text-sm">{f.name}</p>
-                        <p className="text-slate-400">หาร {f.headcount} คน | จ่ายไป {f.paid.toLocaleString()} บ.</p>
-                      </div>
-                      <p className={`font-mono font-bold ${f.netBalance > 0.01 ? 'text-emerald-400' : f.netBalance < -0.01 ? 'text-rose-400' : 'text-slate-400'}`}>
-                        {f.netBalance > 0.01 ? `+รับคืน ${f.netBalance.toLocaleString('th-TH', { maximumFractionDigits: 1 })}` : f.netBalance < -0.01 ? `ต้องจ่าย ${Math.abs(f.netBalance).toLocaleString('th-TH', { maximumFractionDigits: 1 })}` : 'สมดุล (0)'}
-                      </p>
-                    </div>
-                  ))}
+              {/* ยอดรายคน */}
+              <div className="md:col-span-6 bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl flex flex-col justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold flex items-center gap-2 mb-4">
+                    <Icon name="dollar-sign" className="w-5 h-5 text-teal-400" /> สรุปยอดรายคน/กลุ่ม
+                  </h2>
+                  <div className="space-y-2.5">
+                    {calculations.friendTotals.length === 0 ? (
+                      <p className="text-xs text-slate-500 text-center py-6">เพิ่มรายชื่อเพื่อนเพื่อดูสรุป</p>
+                    ) : (
+                      calculations.friendTotals.map((f) => (
+                        <div key={f.id} className="bg-slate-900/80 border border-slate-700/60 rounded-xl p-3 flex items-center justify-between text-xs">
+                          <div>
+                            <p className="font-semibold text-slate-200 text-sm">{f.name}</p>
+                            <p className="text-slate-400">หาร {f.headcount} ส่วน | จ่ายจริง {f.paid.toLocaleString()} บ. (ควรจ่าย {f.shouldPay.toLocaleString('th-TH', { maximumFractionDigits: 1 })} บ.)</p>
+                          </div>
+                          <p className={`font-mono font-bold text-sm ${f.netBalance > 0.01 ? 'text-emerald-400' : f.netBalance < -0.01 ? 'text-rose-400' : 'text-slate-400'}`}>
+                            {f.netBalance > 0.01 ? `+รับคืน ${f.netBalance.toLocaleString('th-TH', { maximumFractionDigits: 1 })}` : f.netBalance < -0.01 ? `ต้องจ่าย ${Math.abs(f.netBalance).toLocaleString('th-TH', { maximumFractionDigits: 1 })}` : 'สมดุล (0)'}
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
               </div>
 
+              {/* การโอนเงิน & ปุ่มบันทึก */}
               <div className="md:col-span-6 bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl flex flex-col justify-between">
                 <div>
                   <h2 className="text-lg font-semibold flex items-center gap-2 mb-4 text-amber-300">
-                    <Icon name="sparkles" className="w-5 h-5 text-amber-400" /> สรุปการโอนเงิน
+                    <Icon name="sparkles" className="w-5 h-5 text-amber-400" /> สรุปการโอนเงิน (เคลียร์ยอด)
                   </h2>
-                  <div className="space-y-3 mb-4">
+                  <div className="space-y-2.5 mb-4">
                     {calculations.settlements.length === 0 ? (
-                      <div className="text-center py-6 bg-slate-900/50 rounded-xl text-slate-400 text-sm">🎉 เคลียร์ยอดเรียบร้อยแล้ว!</div>
+                      <div className="text-center py-6 bg-slate-900/50 rounded-xl text-slate-400 text-sm border border-slate-800">
+                        {expenses.length === 0 ? 'ยังไม่มีรายการค่าใช้จ่าย' : '🎉 เคลียร์ยอดลงตัวเรียบร้อยแล้ว!'}
+                      </div>
                     ) : (
                       calculations.settlements.map((s, index) => (
-                        <div key={index} className="bg-slate-900 border border-amber-500/30 rounded-xl p-3 flex items-center justify-between">
-                          <span className="font-semibold text-rose-300 text-sm">{s.fromName} 👉 {s.toName}</span>
-                          <span className="font-mono font-bold text-amber-400">฿{s.amount.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        <div key={index} className="bg-slate-900 border border-amber-500/30 rounded-xl p-3 flex items-center justify-between shadow-inner">
+                          <span className="font-semibold text-rose-300 text-sm flex items-center gap-1.5">
+                            <span className="text-slate-200">{s.fromName}</span>
+                            <span className="text-amber-400 text-xs">โอนให้ 👉</span>
+                            <span className="text-emerald-300">{s.toName}</span>
+                          </span>
+                          <span className="font-mono font-bold text-amber-400 text-sm">฿{s.amount.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                         </div>
                       ))
                     )}
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <button
-                    onClick={handleSaveToCloud}
-                    disabled={saving || expenses.length === 0}
-                    className="w-full bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-slate-200 py-2.5 px-4 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all border border-slate-600"
-                  >
-                    <Icon name="cloud-upload" className="w-4 h-4 text-amber-400" />
-                    {saving ? "กำลังบันทึก..." : "บันทึกทริปนี้เข้า Cloud Database"}
-                  </button>
+                <div className="space-y-2 pt-2">
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleSaveToCloud(false)}
+                      disabled={saving || (friends.length === 0 && expenses.length === 0)}
+                      className="flex-1 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-slate-100 py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all border border-slate-600"
+                    >
+                      <Icon name="cloud-upload" className="w-4 h-4 text-amber-400" />
+                      {saving ? "กำลังบันทึก..." : (currentTripId ? "💾 อัปเดตทริปนี้" : "☁️ บันทึกลง Cloud")}
+                    </button>
+
+                    {currentTripId && (
+                      <button
+                        onClick={() => handleSaveToCloud(true)}
+                        disabled={saving}
+                        className="bg-slate-700 hover:bg-slate-600 text-amber-300 py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center gap-1 border border-amber-500/40"
+                        title="เซฟเป็นทริปใหม่ ไม่ทับอันเดิม"
+                      >
+                        <Icon name="copy-plus" className="w-4 h-4" /> บันทึกเป็นทริปใหม่
+                      </button>
+                    )}
+                  </div>
 
                   <button
                     onClick={handleCopySummary}
                     disabled={expenses.length === 0}
-                    className={`w-full py-3 px-4 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 ${copied ? 'bg-emerald-600 text-white' : 'bg-amber-500 hover:bg-amber-400 text-slate-950 disabled:opacity-50'}`}
+                    className={`w-full py-3 px-4 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 shadow-lg ${
+                      copied ? 'bg-emerald-600 text-white' : 'bg-amber-500 hover:bg-amber-400 text-slate-950 disabled:opacity-50'
+                    }`}
                   >
                     <Icon name={copied ? "check" : "copy"} className="w-4 h-4" />
-                    {copied ? 'คัดลอกสรุปเรียบร้อย!' : 'คัดลอกสรุปข้อความ (ส่งลงไลน์)'}
+                    {copied ? 'คัดลอกสรุปเรียบร้อยแล้ว!' : 'คัดลอกสรุปข้อความ (ส่งลง LINE)'}
                   </button>
                 </div>
               </div>
             </section>
           </main>
 
-          {/* History Modal */}
+          {/* History & Edit Modal */}
           {showHistoryModal && (
-            <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-              <div className="bg-slate-800 border border-slate-700 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl max-h-[80vh] flex flex-col">
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+              <div className="bg-slate-800 border border-slate-700 rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl max-h-[85vh] flex flex-col">
                 <div className="flex items-center justify-between border-b border-slate-700 pb-3">
-                  <h3 className="text-lg font-bold text-slate-100 flex items-center gap-2">
-                    <Icon name="history" className="w-5 h-5 text-amber-400" /> ประวัติบน Cloud ของคุณ
-                  </h3>
-                  <button onClick={() => setShowHistoryModal(false)} className="text-slate-400 hover:text-slate-200 text-sm">✕</button>
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+                      <Icon name="folder-clock" className="w-5 h-5 text-amber-400" /> ประวัติทริปบน Cloud
+                    </h3>
+                    <p className="text-xs text-slate-400">เลือกทริปที่ต้องการเพื่อโหลดกลับมาดูหรือแก้ไขเพิ่มเติม</p>
+                  </div>
+                  <button onClick={() => setShowHistoryModal(false)} className="text-slate-400 hover:text-slate-200 text-sm p-1">✕</button>
                 </div>
 
                 <div className="overflow-y-auto space-y-3 flex-1 pr-1">
                   {history.length === 0 ? (
-                    <p className="text-center text-slate-500 py-8 text-sm">ยังไม่มีประวัติที่ถูกบันทึกไว้</p>
+                    <div className="text-center py-12 text-slate-500 text-sm">
+                      ยังไม่มีประวัติทริปที่บันทึกไว้
+                    </div>
                   ) : (
                     history.map((record) => (
-                      <div key={record.id} className="bg-slate-900 border border-slate-700 rounded-xl p-3.5 space-y-2">
-                        <div className="flex items-center justify-between text-xs text-slate-400 border-b border-slate-800 pb-2">
-                          <span>📅 {record.date}</span>
-                          <button onClick={() => handleDeleteHistoryRecord(record.id)} className="text-rose-400 hover:underline">ลบ</button>
+                      <div key={record.id} className="bg-slate-900 border border-slate-700/80 rounded-xl p-3.5 space-y-2 hover:border-slate-600 transition-colors">
+                        <div className="flex items-start justify-between border-b border-slate-800 pb-2">
+                          <div>
+                            <h4 className="font-bold text-amber-300 text-sm">{record.tripName || 'ทริปไม่มีชื่อ'}</h4>
+                            <span className="text-[11px] text-slate-400">📅 บันทึกเมื่อ: {record.date}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button 
+                              onClick={() => handleLoadTripForEdit(record)}
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow"
+                            >
+                              <Icon name="edit-3" className="w-3.5 h-3.5" /> โหลดมาแก้ไข
+                            </button>
+                            <button 
+                              onClick={(e) => handleDeleteHistoryRecord(record.id, e)}
+                              className="p-1 text-slate-500 hover:text-rose-400" 
+                              title="ลบทริปนี้"
+                            >
+                              <Icon name="trash-2" className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
-                        <p className="text-xs text-slate-300">ยอดรวม: <strong className="text-emerald-400">฿{record.totalAmount?.toLocaleString()}</strong> ({record.friendsCount} กลุ่ม / {record.expensesCount} รายการ)</p>
-                        <pre className="text-[11px] font-mono bg-slate-950 p-2 rounded border border-slate-800 text-slate-300 overflow-x-auto whitespace-pre-wrap">
-                          {record.summaryText}
-                        </pre>
+
+                        <div className="flex items-center justify-between text-xs text-slate-300">
+                          <span>ยอดรวม: <strong className="text-emerald-400 font-mono">฿{record.totalAmount?.toLocaleString()}</strong></span>
+                          <span className="text-slate-400">({record.friendsCount || record.friendsData?.length || 0} คน / {record.expensesCount || record.expensesData?.length || 0} รายการ)</span>
+                        </div>
+
+                        <details className="text-xs">
+                          <summary className="cursor-pointer text-slate-400 hover:text-slate-200">ดูสรุปข้อความเดิม</summary>
+                          <pre className="mt-2 text-[11px] font-mono bg-slate-950 p-2.5 rounded-lg border border-slate-800 text-slate-300 whitespace-pre-wrap">
+                            {record.summaryText}
+                          </pre>
+                        </details>
                       </div>
                     ))
                   )}
                 </div>
 
-                <button onClick={() => setShowHistoryModal(false)} className="w-full py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl text-xs font-semibold">
+                <button onClick={() => setShowHistoryModal(false)} className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl text-xs font-semibold">
                   ปิดหน้าต่าง
                 </button>
               </div>
             </div>
           )}
 
-          {/* Reset Modal */}
+          {/* Reset Confirmation Modal */}
           {showResetModal && (
-            <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
               <div className="bg-slate-800 border border-slate-700 rounded-2xl max-w-sm w-full p-6 space-y-4 shadow-2xl">
-                <h3 className="text-lg font-bold text-slate-100">ยืนยันการรีเซ็ตข้อมูล?</h3>
-                <p className="text-sm text-slate-300">ข้อมูลปัจจุบันในหน้านี้จะถูกลบทั้งหมด (ไม่มีผลกับประวัติที่เคยเซฟไว้)</p>
+                <h3 className="text-lg font-bold text-slate-100 flex items-center gap-2 text-rose-400">
+                  <Icon name="alert-triangle" className="w-5 h-5" /> ยืนยันการเริ่มทริปใหม่?
+                </h3>
+                <p className="text-sm text-slate-300">
+                  ข้อมูลเพื่อนและค่าใช้จ่ายในหน้าปัจจุบันจะถูกเคลียร์ออกทั้งหมด (ไม่มีผลกระทบต่อประวัติที่เคยเซฟไว้ใน Cloud)
+                </p>
                 <div className="flex gap-3 pt-2">
-                  <button onClick={() => setShowResetModal(false)} className="flex-1 px-4 py-2 bg-slate-700 text-slate-200 rounded-xl text-sm font-medium">ยกเลิก</button>
-                  <button onClick={confirmReset} className="flex-1 px-4 py-2 bg-rose-600 text-white rounded-xl text-sm font-medium">ลบทั้งหมด</button>
+                  <button onClick={() => setShowResetModal(false)} className="flex-1 px-4 py-2 bg-slate-700 text-slate-200 rounded-xl text-sm font-medium hover:bg-slate-600">
+                    ยกเลิก
+                  </button>
+                  <button onClick={confirmReset} className="flex-1 px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-sm font-medium">
+                    เริ่มใหม่
+                  </button>
                 </div>
               </div>
             </div>
