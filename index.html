@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="th">
+<html lang="th" class="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -14,6 +14,11 @@
   
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+    }
+  </script>
   
   <!-- Lucide Icons CDN -->
   <script src="https://unpkg.com/lucide@latest"></script>
@@ -22,8 +27,9 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-storage-compat.js"></script>
 </head>
-<body class="bg-slate-900 text-slate-100 font-sans min-h-screen">
+<body class="bg-slate-100 text-slate-800 dark:bg-slate-900 dark:text-slate-100 font-sans min-h-screen transition-colors duration-200">
 
   <div id="root"></div>
 
@@ -47,17 +53,22 @@
     }
     const auth = firebase.auth();
     const db = firebase.firestore();
+    const storage = firebase.storage ? firebase.storage() : null;
 
-    const { useState, useMemo, useEffect } = React;
+    const { useState, useMemo, useEffect, useRef } = React;
 
-    // Custom Icon Wrapper
+    // Custom Icon Wrapper (ใส่ key={name} ป้องกันไอคอนค้างตอนเปลี่ยนสถานะ)
     const Icon = ({ name, className = "w-4 h-4" }) => {
       useEffect(() => {
         if (window.lucide) {
           window.lucide.createIcons();
         }
       }, [name]);
-      return <i data-lucide={name} className={className}></i>;
+      return (
+        <span key={name} className="inline-flex items-center justify-center shrink-0">
+          <i data-lucide={name} className={className}></i>
+        </span>
+      );
     };
 
     // รายการค่าใช้จ่ายยอดนิยมสำหรับเลือกด่วน
@@ -71,7 +82,59 @@
       { label: "🛒 ของใช้ส่วนกลาง", title: "ของใช้ส่วนกลาง" }
     ];
 
+    const getTodayDateString = () => {
+      const today = new Date();
+      const yyyy = today.getFullYear();
+      const mm = String(today.getMonth() + 1).padStart(2, '0');
+      const dd = String(today.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    };
+
+    // ฟังก์ชันย่อขนาดและบีบอัดรูปภาพ (ช่วยให้บันทึกใบเสร็จได้รวดเร็วและไม่ง้อ Storage)
+    const compressImageFile = (file, maxWidth = 900, quality = 0.65) => {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+          const img = new Image();
+          img.src = event.target.result;
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            let width = img.width;
+            let height = img.height;
+            if (width > maxWidth) {
+              height = Math.round((height * maxWidth) / width);
+              width = maxWidth;
+            }
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            resolve(canvas.toDataURL('image/jpeg', quality));
+          };
+          img.onerror = (err) => reject(err);
+        };
+        reader.onerror = (err) => reject(err);
+      });
+    };
+
     function App() {
+      // Theme State (โหมดกลางวัน / กลางคืน)
+      const [isDarkMode, setIsDarkMode] = useState(() => {
+        const savedTheme = localStorage.getItem('trip_theme');
+        return savedTheme ? savedTheme === 'dark' : true;
+      });
+
+      useEffect(() => {
+        if (isDarkMode) {
+          document.documentElement.classList.add('dark');
+          localStorage.setItem('trip_theme', 'dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+          localStorage.setItem('trip_theme', 'light');
+        }
+      }, [isDarkMode]);
+
       // User Auth State
       const [user, setUser] = useState(null);
       const [loading, setLoading] = useState(true);
@@ -82,7 +145,7 @@
         return `ทริปวันที่ ${today.toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' })}`;
       };
 
-      const [currentTripId, setCurrentTripId] = useState(null); // หากโหลดทริปเดิมมาแก้
+      const [currentTripId, setCurrentTripId] = useState(null);
       const [tripName, setTripName] = useState(getDefaultTripName());
 
       // Data States
@@ -90,13 +153,26 @@
       const [expenses, setExpenses] = useState([]);
       const [history, setHistory] = useState([]);
 
-      // Inputs state
+      // Inputs state: Friends
       const [newFriendName, setNewFriendName] = useState('');
+      const [newFriendPromptPay, setNewFriendPromptPay] = useState('');
       const [newFriendHeadcount, setNewFriendHeadcount] = useState(1);
+
+      // Inputs state: Expenses & Edit Mode
+      const [editingExpenseId, setEditingExpenseId] = useState(null);
+      const [expenseDate, setExpenseDate] = useState(getTodayDateString());
       const [expenseTitle, setExpenseTitle] = useState('');
       const [expenseAmount, setExpenseAmount] = useState('');
       const [expensePayerId, setExpensePayerId] = useState('');
       const [selectedParticipants, setSelectedParticipants] = useState([]);
+      
+      // Receipt States
+      const [receiptFile, setReceiptFile] = useState(null);
+      const [receiptPreview, setReceiptPreview] = useState(null);
+      const [uploading, setUploading] = useState(false);
+      const [viewingReceiptUrl, setViewingReceiptUrl] = useState(null);
+      const fileInputRef = useRef(null);
+      const expenseSectionRef = useRef(null);
       
       // UI Modals & Feedback
       const [copied, setCopied] = useState(false);
@@ -110,9 +186,7 @@
         setTimeout(() => setAlertMsg(null), 4000);
       };
 
-      // ----------------------------------------------------
-      // ติดตามสถานะ Login และโหลดประวัติ (พร้อมจัดการ Unsubscribe Realtime)
-      // ----------------------------------------------------
+      // ติดตามสถานะ Login และโหลดประวัติ
       useEffect(() => {
         let unsubscribeHistory = null;
 
@@ -120,7 +194,6 @@
           setUser(currentUser);
           setLoading(false);
 
-          // ยกเลิก Realtime listener เดิมก่อนเสมอเพื่อป้องกัน Permission Error ตอน Logout
           if (unsubscribeHistory) {
             unsubscribeHistory();
             unsubscribeHistory = null;
@@ -135,7 +208,6 @@
               }));
               setHistory(tripsData);
             }, (error) => {
-              // แจ้งเตือนเฉพาะกรณีที่ยังล็อกอินอยู่ (ไม่เตือนตอนกำลังตัดการเชื่อมต่อตอนออกจากระบบ)
               if (auth.currentUser) {
                 console.error("Firestore error:", error);
                 showAlert("ไม่สามารถดึงข้อมูลประวัติได้ กรุณาตรวจ Firestore Rules", "error");
@@ -152,7 +224,7 @@
         };
       }, []);
 
-      // Google Sign-In with robust error handling
+      // Google Sign-In
       const handleGoogleLogin = async () => {
         const provider = new firebase.auth.GoogleAuthProvider();
         provider.setCustomParameters({ prompt: 'select_account' });
@@ -181,15 +253,16 @@
         }
       };
 
+      // ตั้งค่าคนจ่ายเงินเริ่มต้นเมื่อมีรายชื่อเพื่อน
       useEffect(() => {
-        if (selectedParticipants.length === 0 && friends.length > 0) {
-          setSelectedParticipants(friends.map(f => f.id));
-        }
-        if (!expensePayerId && friends.length > 0) {
+        if ((!expensePayerId || !friends.some(f => f.id === expensePayerId)) && friends.length > 0) {
           setExpensePayerId(friends[0].id);
+        } else if (friends.length === 0) {
+          setExpensePayerId('');
         }
-      }, [friends]);
+      }, [friends, expensePayerId]);
 
+      // เพิ่มเพื่อนใหม่
       const handleAddFriend = (e) => {
         e.preventDefault();
         if (!newFriendName.trim()) return;
@@ -197,16 +270,21 @@
         const newFriend = {
           id: 'friend_' + Date.now().toString(),
           name: newFriendName.trim(),
+          promptPay: newFriendPromptPay.trim(),
           headcount: Math.max(1, parseInt(newFriendHeadcount) || 1),
         };
 
-        setFriends([...friends, newFriend]);
-        setNewFriendName('');
-        setNewFriendHeadcount(1);
-        
-        if (selectedParticipants.length > 0) {
-          setSelectedParticipants([...selectedParticipants, newFriend.id]);
+        setFriends(prev => [...prev, newFriend]);
+        if (!editingExpenseId) {
+          setSelectedParticipants(prev => [...prev, newFriend.id]);
         }
+        if (!expensePayerId) {
+          setExpensePayerId(newFriend.id);
+        }
+
+        setNewFriendName('');
+        setNewFriendPromptPay('');
+        setNewFriendHeadcount(1);
       };
 
       const handleDeleteFriend = (id) => {
@@ -228,11 +306,11 @@
       };
 
       const handleToggleParticipant = (friendId) => {
-        if (selectedParticipants.includes(friendId)) {
-          setSelectedParticipants(selectedParticipants.filter(id => id !== friendId));
-        } else {
-          setSelectedParticipants([...selectedParticipants, friendId]);
-        }
+        setSelectedParticipants(prev =>
+          prev.includes(friendId)
+            ? prev.filter(id => id !== friendId)
+            : [...prev, friendId]
+        );
       };
 
       const handleSelectAllParticipants = () => {
@@ -243,31 +321,150 @@
         }
       };
 
-      const handleAddExpense = (e) => {
-        e.preventDefault();
-        const numAmount = parseFloat(expenseAmount);
-        if (!expenseTitle.trim() || isNaN(numAmount) || numAmount <= 0 || !expensePayerId || selectedParticipants.length === 0) {
-          showAlert("กรุณากรอกข้อมูลรายการและจำนวนเงินให้ถูกต้อง", "error");
+      // เมื่อผู้ใช้เลือกไฟล์ใบเสร็จ ให้บีบอัดและสร้าง Preview ทันที
+      const handleReceiptFileChange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        if (!file.type.startsWith('image/')) {
+          showAlert("กรุณาเลือกไฟล์รูปภาพเท่านั้น", "error");
           return;
         }
 
-        const newExpense = {
-          id: 'exp_' + Date.now().toString(),
-          title: expenseTitle.trim(),
-          amount: numAmount,
-          payerId: expensePayerId,
-          participantIds: [...selectedParticipants],
-        };
+        try {
+          setReceiptFile(file);
+          const compressedDataUrl = await compressImageFile(file);
+          setReceiptPreview(compressedDataUrl);
+        } catch (err) {
+          console.error("Image processing error:", err);
+          showAlert("ไม่สามารถอ่านไฟล์รูปภาพนี้ได้", "error");
+        }
+      };
 
-        setExpenses([...expenses, newExpense]);
+      // ลบรูปใบเสร็จออกจากฟอร์มกำลังบันทึก/แก้ไข
+      const handleClearReceipt = () => {
+        setReceiptFile(null);
+        setReceiptPreview(null);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      };
+
+      // เริ่มแก้ไขรายการค่าใช้จ่าย
+      const handleStartEditExpense = (exp) => {
+        setEditingExpenseId(exp.id);
+        setExpenseDate(exp.date || getTodayDateString());
+        setExpenseTitle(exp.title);
+        setExpenseAmount(exp.amount.toString());
+        setExpensePayerId(exp.payerId);
+        setSelectedParticipants(exp.participantIds || []);
+        setReceiptFile(null);
+        setReceiptPreview(exp.receiptUrl || null);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+
+        if (expenseSectionRef.current) {
+          expenseSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      };
+
+      // ยกเลิกโหมดแก้ไขรายการ
+      const handleCancelEditExpense = () => {
+        setEditingExpenseId(null);
+        setExpenseDate(getTodayDateString());
         setExpenseTitle('');
         setExpenseAmount('');
+        if (friends.length > 0) setExpensePayerId(friends[0].id);
         setSelectedParticipants(friends.map(f => f.id));
+        handleClearReceipt();
+      };
+
+      // บันทึก หรือ อัปเดตรายการค่าใช้จ่าย
+      const handleSaveExpenseForm = async (e) => {
+        e.preventDefault();
+        const numAmount = parseFloat(expenseAmount);
+        if (!expenseTitle.trim() || isNaN(numAmount) || numAmount <= 0 || !expensePayerId || selectedParticipants.length === 0) {
+          showAlert("กรุณากรอกข้อมูลรายการ จำนวนเงิน และเลือกคนหารให้ครบถ้วน", "error");
+          return;
+        }
+
+        setUploading(true);
+        let finalReceiptUrl = receiptPreview || null;
+
+        // หากมีการเลือกไฟล์ใหม่ และล็อกอินอยู่ จะลองอัปโหลดไปที่ Firebase Storage (มี Timeout 3.5 วินาที ถ้าไม่ผ่านจะใช้ภาพที่บีบอัดไว้แทนทันที)
+        if (receiptFile && user && storage) {
+          try {
+            const fileName = `receipt_${Date.now()}.jpg`;
+            const fileRef = storage.ref().child(`receipts/${user.uid}/${fileName}`);
+            
+            const uploadTask = fileRef.putString(receiptPreview, 'data_url').then(() => fileRef.getDownloadURL());
+            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Storage timeout")), 3500));
+            
+            finalReceiptUrl = await Promise.race([uploadTask, timeoutPromise]);
+          } catch (err) {
+            // หาก Storage ยังไม่ได้เปิด หรือติด Rules ระบบจะใช้ภาพ Base64 ที่บีบอัดไว้แล้วแทนโดยอัตโนมัติ
+            console.warn("ใช้ระบบบันทึกภาพใบเสร็จแบบฝังในรายการโดยตรง:", err.message);
+            finalReceiptUrl = receiptPreview;
+          }
+        }
+
+        if (editingExpenseId) {
+          // อัปเดตรายการเดิม
+          setExpenses(prev => prev.map(exp => {
+            if (exp.id === editingExpenseId) {
+              return {
+                ...exp,
+                date: expenseDate || getTodayDateString(),
+                title: expenseTitle.trim(),
+                amount: numAmount,
+                payerId: expensePayerId,
+                participantIds: [...selectedParticipants],
+                receiptUrl: finalReceiptUrl
+              };
+            }
+            return exp;
+          }));
+          showAlert(`แก้ไขรายการ "${expenseTitle.trim()}" เรียบร้อยแล้ว!`, "success");
+          setEditingExpenseId(null);
+        } else {
+          // เพิ่มรายการใหม่
+          const newExpense = {
+            id: 'exp_' + Date.now().toString(),
+            date: expenseDate || getTodayDateString(),
+            title: expenseTitle.trim(),
+            amount: numAmount,
+            payerId: expensePayerId,
+            participantIds: [...selectedParticipants],
+            receiptUrl: finalReceiptUrl,
+            createdAtMs: Date.now()
+          };
+          setExpenses(prev => [...prev, newExpense]);
+          showAlert(`เพิ่มรายการ "${expenseTitle.trim()}" เรียบร้อย!`, "success");
+        }
+
+        // รีเซ็ตฟอร์ม
+        setExpenseTitle('');
+        setExpenseAmount('');
+        handleClearReceipt();
+        setSelectedParticipants(friends.map(f => f.id));
+        setUploading(false);
       };
 
       const handleDeleteExpense = (id) => {
+        if (editingExpenseId === id) {
+          handleCancelEditExpense();
+        }
         setExpenses(expenses.filter(e => e.id !== id));
       };
+
+      // เรียงลำดับรายการค่าใช้จ่ายตามวันที่ (เก่าไปใหม่)
+      const sortedExpenses = useMemo(() => {
+        return [...expenses].sort((a, b) => {
+          const dateA = a.date || '';
+          const dateB = b.date || '';
+          if (dateA !== dateB) {
+            return dateA.localeCompare(dateB);
+          }
+          return (a.createdAtMs || 0) - (b.createdAtMs || 0);
+        });
+      }, [expenses]);
 
       // คำนวณยอดหาร
       const calculations = useMemo(() => {
@@ -276,6 +473,7 @@
           friendTotals[f.id] = {
             id: f.id,
             name: f.name,
+            promptPay: f.promptPay || '',
             headcount: f.headcount,
             paid: 0,
             shouldPay: 0,
@@ -341,6 +539,7 @@
               fromName: debtor.name,
               toId: creditor.id,
               toName: creditor.name,
+              toPromptPay: creditor.promptPay,
               amount: settlementAmount,
             });
           }
@@ -359,11 +558,28 @@
         };
       }, [friends, expenses]);
 
+      const formatThaiDate = (dateStr) => {
+        if (!dateStr) return 'ไม่ระบุวันที่';
+        const parts = dateStr.split('-');
+        if (parts.length !== 3) return dateStr;
+        const dateObj = new Date(parts[0], parts[1] - 1, parts[2]);
+        return dateObj.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
+      };
+
       // สรุปข้อความส่ง LINE
       const generateSummaryText = () => {
         const finalTripName = tripName.trim() || getDefaultTripName();
         let summaryText = `🏕️ *สรุปค่าใช้จ่าย: ${finalTripName}*\n`;
         summaryText += `💰 ยอดรวมทั้งหมด: ${calculations.totalExpenseAmount.toLocaleString()} บาท\n\n`;
+
+        if (sortedExpenses.length > 0) {
+          summaryText += `📋 *รายการค่าใช้จ่าย (เรียงตามวันที่):*\n`;
+          sortedExpenses.forEach(exp => {
+            const payer = friends.find(f => f.id === exp.payerId);
+            summaryText += `- [${formatThaiDate(exp.date)}] ${exp.title}: ${exp.amount.toLocaleString()} บ. (${payer ? payer.name : '-'} จ่าย)${exp.receiptUrl ? ` 🧾` : ''}\n`;
+          });
+          summaryText += `\n`;
+        }
         
         summaryText += `👥 *รายละเอียดต่อคน/กลุ่ม:*\n`;
         calculations.friendTotals.forEach(f => {
@@ -375,15 +591,14 @@
           summaryText += `✨ เคลียร์ยอดครบแล้ว ไม่มีใครต้องโอนเพิ่ม!\n`;
         } else {
           calculations.settlements.forEach(s => {
-            summaryText += `- 👉 ${s.fromName} โอนให้ ${s.toName} : *${s.amount.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท*\n`;
+            const ppInfo = s.toPromptPay ? ` (พร้อมเพย์: ${s.toPromptPay})` : '';
+            summaryText += `- 👉 ${s.fromName} โอนให้ ${s.toName}${ppInfo} : *${s.amount.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท*\n`;
           });
         }
         return summaryText;
       };
 
-      // ----------------------------------------------------
       // บันทึก หรือ แก้ไขทริปใน Cloud Firestore
-      // ----------------------------------------------------
       const handleSaveToCloud = async (saveAsNew = false) => {
         if (!user) {
           showAlert("กรุณาเข้าสู่ระบบด้วย Google ก่อนบันทึกทริป", "error");
@@ -404,7 +619,6 @@
           summaryText: generateSummaryText(),
           friendsCount: friends.length,
           expensesCount: expenses.length,
-          // บันทึก Raw Data สำหรับการดึงมาแก้ไขย้อนหลัง
           friendsData: friends,
           expensesData: expenses
         };
@@ -413,11 +627,9 @@
           const userTripsRef = db.collection("users").doc(user.uid).collection("trips");
           
           if (currentTripId && !saveAsNew) {
-            // อัปเดตทริปเดิม
             await userTripsRef.doc(currentTripId).set(tripData, { merge: true });
             showAlert(`☁️ อัปเดต "${finalTripName}" สำเร็จ!`, "success");
           } else {
-            // สร้างทริปใหม่
             tripData.createdAt = firebase.firestore.FieldValue.serverTimestamp();
             const newDoc = await userTripsRef.add(tripData);
             setCurrentTripId(newDoc.id);
@@ -433,9 +645,13 @@
 
       // โหลดข้อมูลทริปเดิมกลับมาแก้ไข
       const handleLoadTripForEdit = (record) => {
+        const loadedFriends = record.friendsData || [];
         setTripName(record.tripName || getDefaultTripName());
-        setFriends(record.friendsData || []);
+        setFriends(loadedFriends);
         setExpenses(record.expensesData || []);
+        setSelectedParticipants(loadedFriends.map(f => f.id));
+        setEditingExpenseId(null);
+        handleClearReceipt();
         setCurrentTripId(record.id);
         setShowHistoryModal(false);
         showAlert(`📥 โหลดข้อมูล "${record.tripName || 'ทริป'}" เพื่อแก้ไขเรียบร้อย`, "info");
@@ -481,6 +697,9 @@
       const confirmReset = () => {
         setFriends([]);
         setExpenses([]);
+        setSelectedParticipants([]);
+        setEditingExpenseId(null);
+        handleClearReceipt();
         setCurrentTripId(null);
         setTripName(getDefaultTripName());
         setShowResetModal(false);
@@ -492,8 +711,8 @@
           {/* Toast Notification */}
           {alertMsg && (
             <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-xl shadow-2xl flex items-center gap-2 text-sm border animate-bounce ${
-              alertMsg.type === 'error' ? 'bg-rose-900/90 border-rose-500 text-rose-100' :
-              alertMsg.type === 'success' ? 'bg-emerald-900/90 border-emerald-500 text-emerald-100' :
+              alertMsg.type === 'error' ? 'bg-rose-600 border-rose-400 text-white dark:bg-rose-900/90 dark:border-rose-500 dark:text-rose-100' :
+              alertMsg.type === 'success' ? 'bg-emerald-600 border-emerald-400 text-white dark:bg-emerald-900/90 dark:border-emerald-500 dark:text-emerald-100' :
               'bg-slate-800 border-slate-600 text-slate-100'
             }`}>
               <Icon name={alertMsg.type === 'error' ? 'alert-circle' : alertMsg.type === 'success' ? 'check-circle' : 'info'} className="w-5 h-5" />
@@ -502,41 +721,50 @@
           )}
 
           {/* Header */}
-          <header className="bg-slate-800/95 border-b border-slate-700 sticky top-0 z-40 backdrop-blur-md">
+          <header className="bg-white/95 dark:bg-slate-800/95 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-40 backdrop-blur-md transition-colors">
             <div className="max-w-5xl mx-auto px-4 py-3.5 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-emerald-500/20 text-emerald-400 rounded-xl border border-emerald-500/30">
+                <div className="p-2.5 bg-emerald-500/15 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 rounded-xl border border-emerald-500/30">
                   <Icon name="pie-chart" className="w-6 h-6" />
                 </div>
                 <div>
-                  <h1 className="text-xl font-bold bg-gradient-to-r from-emerald-400 to-teal-300 bg-clip-text text-transparent flex items-center gap-2">
+                  <h1 className="text-xl font-bold bg-gradient-to-r from-emerald-600 to-teal-500 dark:from-emerald-400 dark:to-teal-300 bg-clip-text text-transparent flex items-center gap-2">
                     หารค่าใช้จ่ายทริป
                     {currentTripId && (
-                      <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-full font-normal">
+                      <span className="text-[10px] bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-full font-normal">
                         โหมดแก้ไขทริป
                       </span>
                     )}
                   </h1>
-                  <p className="text-xs text-slate-400">คำนวณง่าย หารแฟร์ เซฟลง Cloud แก้ไขได้ตลอดเวลา</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">คำนวณง่าย หารแฟร์ แนบใบเสร็จ & แก้ไขได้ตลอดเวลา</p>
                 </div>
               </div>
 
-              {/* Login & Actions */}
+              {/* Theme Toggle, Login & Actions */}
               <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setIsDarkMode(!isDarkMode)}
+                  className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700/70 dark:hover:bg-slate-700 text-slate-700 dark:text-amber-300 transition-colors flex items-center gap-1.5 text-xs font-medium"
+                  title={isDarkMode ? "สลับเป็นโหมดกลางวัน" : "สลับเป็นโหมดกลางคืน"}
+                >
+                  <Icon name={isDarkMode ? "sun" : "moon"} className="w-4 h-4" />
+                  <span className="hidden sm:inline">{isDarkMode ? "โหมดกลางวัน" : "โหมดกลางคืน"}</span>
+                </button>
+
                 {loading ? (
                   <span className="text-xs text-slate-400">กำลังโหลด...</span>
                 ) : user ? (
                   <div className="flex items-center gap-2">
                     <button 
                       onClick={() => setShowHistoryModal(true)}
-                      className="bg-slate-700 hover:bg-slate-600 text-slate-200 px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 text-xs font-medium border border-slate-600 shadow-sm"
+                      className="bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 text-xs font-medium border border-slate-200 dark:border-slate-600 shadow-sm"
                     >
-                      <Icon name="folder-clock" className="w-4 h-4 text-amber-400" />
-                      <span>ประวัติทริป ({history.length})</span>
+                      <Icon name="folder-clock" className="w-4 h-4 text-amber-500 dark:text-amber-400" />
+                      <span className="hidden md:inline">ประวัติทริป ({history.length})</span>
                     </button>
-                    <div className="flex items-center gap-1.5 bg-slate-800 border border-slate-700 rounded-xl p-1 pr-2">
+                    <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-1 pr-2">
                       <img src={user.photoURL || 'https://via.placeholder.com/32'} alt={user.displayName} className="w-6 h-6 rounded-full border border-emerald-400 object-cover" />
-                      <button onClick={handleLogout} className="text-xs text-slate-400 hover:text-rose-400" title="ออกจากระบบ">
+                      <button onClick={handleLogout} className="text-xs text-slate-500 dark:text-slate-400 hover:text-rose-500 dark:hover:text-rose-400" title="ออกจากระบบ">
                         <Icon name="log-out" className="w-3.5 h-3.5" />
                       </button>
                     </div>
@@ -552,7 +780,7 @@
 
                 <button 
                   onClick={() => setShowResetModal(true)}
-                  className="text-slate-400 hover:text-rose-400 p-2 rounded-xl hover:bg-slate-700/50 transition-colors"
+                  className="text-slate-500 dark:text-slate-400 hover:text-rose-500 dark:hover:text-rose-400 p-2 rounded-xl hover:bg-slate-200/60 dark:hover:bg-slate-700/50 transition-colors"
                   title="เริ่มทริปใหม่ / ล้างข้อมูล"
                 >
                   <Icon name="rotate-ccw" className="w-4 h-4" />
@@ -564,9 +792,9 @@
           <main className="max-w-5xl mx-auto px-4 pt-6 space-y-6">
             
             {/* Trip Name Banner */}
-            <div className="bg-gradient-to-r from-slate-800 to-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="bg-white dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-4 shadow-md dark:shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 transition-colors">
               <div className="flex-1 w-full">
-                <label className="block text-xs font-medium text-amber-300 mb-1 flex items-center gap-1.5">
+                <label className="block text-xs font-medium text-amber-600 dark:text-amber-300 mb-1 flex items-center gap-1.5">
                   <Icon name="map-pin" className="w-3.5 h-3.5" /> ชื่อทริป (หากไม่กรอกจะใช้วันที่อัตโนมัติ)
                 </label>
                 <div className="flex items-center gap-2">
@@ -575,12 +803,12 @@
                     placeholder={getDefaultTripName()}
                     value={tripName}
                     onChange={(e) => setTripName(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 focus:border-amber-400 focus:ring-1 focus:ring-amber-400 rounded-xl px-3.5 py-2 text-sm font-semibold text-slate-100 outline-none placeholder-slate-500"
+                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-amber-500 dark:focus:border-amber-400 focus:ring-1 focus:ring-amber-400 rounded-xl px-3.5 py-2 text-sm font-semibold text-slate-800 dark:text-slate-100 outline-none placeholder-slate-400"
                   />
                   <button
                     type="button"
                     onClick={() => setTripName(getDefaultTripName())}
-                    className="shrink-0 px-2.5 py-2 text-xs bg-slate-700 hover:bg-slate-600 rounded-xl text-slate-300 transition-colors"
+                    className="shrink-0 px-2.5 py-2 text-xs bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 rounded-xl text-slate-700 dark:text-slate-300 transition-colors"
                     title="ใช้วันที่ปัจจุบันเป็นชื่อทริป"
                   >
                     วันที่วันนี้
@@ -588,41 +816,50 @@
                 </div>
               </div>
               {currentTripId && (
-                <div className="text-xs bg-amber-500/10 border border-amber-500/30 rounded-xl p-2 text-amber-300 shrink-0">
+                <div className="text-xs bg-amber-500/10 border border-amber-500/30 rounded-xl p-2 text-amber-600 dark:text-amber-300 shrink-0">
                   กำลังแก้ไขทริปเดิมที่เซฟไว้
                 </div>
               )}
             </div>
 
             {/* Step 1: Manage Friends */}
-            <section className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
+            <section className="bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-5 shadow-md dark:shadow-xl transition-colors">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center font-bold text-sm">1</div>
+                  <div className="w-7 h-7 rounded-lg bg-indigo-500/15 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-sm">1</div>
                   <h2 className="text-lg font-semibold flex items-center gap-2">
-                    <Icon name="users" className="w-5 h-5 text-indigo-400" /> รายชื่อเพื่อน & จำนวนคน
+                    <Icon name="users" className="w-5 h-5 text-indigo-500 dark:text-indigo-400" /> รายชื่อเพื่อน & พร้อมเพย์รับเงิน
                   </h2>
                 </div>
-                <span className="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-full font-medium">
+                <span className="text-xs bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-2.5 py-1 rounded-full font-medium">
                   รวม {friends.reduce((acc, f) => acc + f.headcount, 0)} คน ({friends.length} กลุ่ม/คน)
                 </span>
               </div>
 
               <form onSubmit={handleAddFriend} className="grid grid-cols-1 sm:grid-cols-12 gap-3 mb-5">
-                <div className="sm:col-span-6">
+                <div className="sm:col-span-4">
                   <input
                     type="text"
-                    placeholder="เช่น สมชาย, ครอบครัวเอ, หรือชื่อเล่น..."
+                    placeholder="ชื่อเพื่อน เช่น สมชาย, ครอบครัวเอ, หรือชื่อเล่น..."
                     value={newFriendName}
                     onChange={(e) => setNewFriendName(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-xl px-4 py-2.5 text-sm outline-none"
+                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-xl px-4 py-2.5 text-sm outline-none"
                   />
                 </div>
-                <div className="sm:col-span-4 flex items-center bg-slate-900 border border-slate-700 rounded-xl px-3 py-1">
-                  <span className="text-xs text-slate-400 whitespace-nowrap mr-2">จำนวนคน:</span>
-                  <button type="button" onClick={() => setNewFriendHeadcount(Math.max(1, newFriendHeadcount - 1))} className="w-7 h-7 rounded-lg bg-slate-800 text-slate-300 flex items-center justify-center font-bold text-sm hover:bg-slate-700">-</button>
-                  <span className="flex-1 text-center font-semibold text-sm text-indigo-300">{newFriendHeadcount} คน</span>
-                  <button type="button" onClick={() => setNewFriendHeadcount(newFriendHeadcount + 1)} className="w-7 h-7 rounded-lg bg-slate-800 text-slate-300 flex items-center justify-center font-bold text-sm hover:bg-slate-700">+</button>
+                <div className="sm:col-span-3">
+                  <input
+                    type="text"
+                    placeholder="เบอร์พร้อมเพย์ / เลขบัญชี (ถ้ามี)"
+                    value={newFriendPromptPay}
+                    onChange={(e) => setNewFriendPromptPay(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-xl px-4 py-2.5 text-sm outline-none"
+                  />
+                </div>
+                <div className="sm:col-span-3 flex items-center bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-1">
+                  <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap mr-2">จำนวนคน:</span>
+                  <button type="button" onClick={() => setNewFriendHeadcount(Math.max(1, newFriendHeadcount - 1))} className="w-7 h-7 rounded-lg bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center font-bold text-sm hover:bg-slate-300 dark:hover:bg-slate-700">-</button>
+                  <span className="flex-1 text-center font-semibold text-sm text-indigo-600 dark:text-indigo-300">{newFriendHeadcount} คน</span>
+                  <button type="button" onClick={() => setNewFriendHeadcount(newFriendHeadcount + 1)} className="w-7 h-7 rounded-lg bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center font-bold text-sm hover:bg-slate-300 dark:hover:bg-slate-700">+</button>
                 </div>
                 <div className="sm:col-span-2">
                   <button type="submit" disabled={!newFriendName.trim()} className="w-full h-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium py-2.5 px-4 rounded-xl text-sm flex items-center justify-center gap-1.5 shadow-lg transition-all">
@@ -632,24 +869,29 @@
               </form>
 
               {friends.length === 0 ? (
-                <div className="text-center py-6 text-slate-500 border border-dashed border-slate-700/60 rounded-xl text-sm">
+                <div className="text-center py-6 text-slate-400 dark:text-slate-500 border border-dashed border-slate-300 dark:border-slate-700/60 rounded-xl text-sm">
                   ยังไม่มีรายชื่อเพื่อน กดเพิ่มรายชื่อเพื่อนด้านบนได้เลย
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                   {friends.map((friend) => (
-                    <div key={friend.id} className="bg-slate-900/80 border border-slate-700/60 rounded-xl p-3 flex items-center justify-between">
+                    <div key={friend.id} className="bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700/60 rounded-xl p-3 flex items-center justify-between">
                       <div className="overflow-hidden mr-2">
-                        <p className="font-medium text-slate-200 text-sm truncate">{friend.name}</p>
-                        <p className="text-xs text-indigo-400">สัดส่วน {friend.headcount} คน</p>
+                        <p className="font-medium text-slate-800 dark:text-slate-200 text-sm truncate">{friend.name}</p>
+                        <p className="text-xs text-indigo-600 dark:text-indigo-400">สัดส่วน {friend.headcount} คน</p>
+                        {friend.promptPay && (
+                          <p className="text-[11px] text-emerald-600 dark:text-emerald-400 truncate mt-0.5">
+                            💳 พร้อมเพย์: {friend.promptPay}
+                          </p>
+                        )}
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <div className="flex items-center bg-slate-800 border border-slate-700 rounded-lg">
-                          <button onClick={() => handleUpdateHeadcount(friend.id, -1)} className="w-6 h-6 text-slate-400 hover:text-slate-200 flex items-center justify-center font-bold text-xs">-</button>
-                          <span className="text-xs font-semibold px-1.5 text-slate-300">{friend.headcount}</span>
-                          <button onClick={() => handleUpdateHeadcount(friend.id, 1)} className="w-6 h-6 text-slate-400 hover:text-slate-200 flex items-center justify-center font-bold text-xs">+</button>
+                        <div className="flex items-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg">
+                          <button onClick={() => handleUpdateHeadcount(friend.id, -1)} className="w-6 h-6 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 flex items-center justify-center font-bold text-xs">-</button>
+                          <span className="text-xs font-semibold px-1.5 text-slate-700 dark:text-slate-300">{friend.headcount}</span>
+                          <button onClick={() => handleUpdateHeadcount(friend.id, 1)} className="w-6 h-6 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 flex items-center justify-center font-bold text-xs">+</button>
                         </div>
-                        <button onClick={() => handleDeleteFriend(friend.id)} className="p-1.5 text-slate-500 hover:text-rose-400 transition-colors" title="ลบชื่อนี้">
+                        <button onClick={() => handleDeleteFriend(friend.id)} className="p-1.5 text-slate-400 hover:text-rose-500 transition-colors" title="ลบชื่อนี้">
                           <Icon name="trash-2" className="w-4 h-4" />
                         </button>
                       </div>
@@ -659,25 +901,48 @@
               )}
             </section>
 
-            {/* Step 2: Expenses */}
-            <section className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-sm">2</div>
-                <h2 className="text-lg font-semibold flex items-center gap-2">
-                  <Icon name="receipt" className="w-5 h-5 text-emerald-400" /> บันทึกรายการค่าใช้จ่าย
-                </h2>
+            {/* Step 2: Expenses (Add & Edit) */}
+            <section 
+              ref={expenseSectionRef}
+              className={`bg-white dark:bg-slate-800/80 border rounded-2xl p-5 shadow-md dark:shadow-xl transition-all ${
+                editingExpenseId 
+                  ? 'border-amber-500 ring-2 ring-amber-500/20' 
+                  : 'border-slate-200 dark:border-slate-700/80'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-sm ${
+                    editingExpenseId 
+                      ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' 
+                      : 'bg-emerald-500/15 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                  }`}>2</div>
+                  <h2 className="text-lg font-semibold flex items-center gap-2">
+                    <Icon name={editingExpenseId ? "edit-3" : "receipt"} className={`w-5 h-5 ${editingExpenseId ? 'text-amber-500' : 'text-emerald-500 dark:text-emerald-400'}`} />
+                    {editingExpenseId ? 'กำลังแก้ไขรายการค่าใช้จ่าย' : 'บันทึกรายการค่าใช้จ่าย'}
+                  </h2>
+                </div>
+                {editingExpenseId && (
+                  <button
+                    type="button"
+                    onClick={handleCancelEditExpense}
+                    className="text-xs bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 px-3 py-1.5 rounded-xl font-medium flex items-center gap-1"
+                  >
+                    ✕ ยกเลิกการแก้ไข
+                  </button>
+                )}
               </div>
 
-              {/* หมวดหมู่ด่วน / เมนูสำเร็จรูป */}
+              {/* หมวดหมู่ด่วน */}
               <div className="mb-4">
-                <label className="block text-xs font-medium text-slate-400 mb-1.5">เลือกหมวดหมู่ด่วน:</label>
+                <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">เลือกหมวดหมู่ด่วน:</label>
                 <div className="flex flex-wrap gap-1.5">
                   {POPULAR_CATEGORIES.map((cat, idx) => (
                     <button
                       key={idx}
                       type="button"
                       onClick={() => setExpenseTitle(cat.title)}
-                      className="text-xs bg-slate-900/90 hover:bg-slate-700 text-slate-300 border border-slate-700 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1"
+                      className="text-xs bg-slate-100 hover:bg-slate-200 dark:bg-slate-900/90 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1"
                     >
                       {cat.label}
                     </button>
@@ -685,36 +950,48 @@
                 </div>
               </div>
 
-              <form onSubmit={handleAddExpense} className="space-y-4">
+              <form onSubmit={handleSaveExpenseForm} className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                  <div className="sm:col-span-3">
+                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">วันที่ใช้จ่าย</label>
+                    <input 
+                      type="date" 
+                      value={expenseDate} 
+                      onChange={(e) => setExpenseDate(e.target.value)} 
+                      className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-emerald-500 rounded-xl px-3 py-2.5 text-sm outline-none" 
+                    />
+                  </div>
                   <div className="sm:col-span-5">
-                    <label className="block text-xs font-medium text-slate-400 mb-1">ชื่อรายการค่าใช้จ่าย</label>
+                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">ชื่อรายการค่าใช้จ่าย</label>
                     <input 
                       type="text" 
                       placeholder="เช่น ค่ากุ้งเผา, ค่าทางด่วน..." 
                       value={expenseTitle} 
                       onChange={(e) => setExpenseTitle(e.target.value)} 
-                      className="w-full bg-slate-900 border border-slate-700 focus:border-emerald-500 rounded-xl px-4 py-2.5 text-sm outline-none" 
+                      className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-emerald-500 rounded-xl px-4 py-2.5 text-sm outline-none" 
                     />
                   </div>
-                  <div className="sm:col-span-3">
-                    <label className="block text-xs font-medium text-slate-400 mb-1">จำนวนเงิน (บาท)</label>
+                  <div className="sm:col-span-4">
+                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">จำนวนเงิน (บาท)</label>
                     <input 
                       type="number" 
                       step="any" 
                       placeholder="0.00" 
                       value={expenseAmount} 
                       onChange={(e) => setExpenseAmount(e.target.value)} 
-                      className="w-full bg-slate-900 border border-slate-700 focus:border-emerald-500 rounded-xl px-4 py-2.5 text-sm outline-none font-mono" 
+                      className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-emerald-500 rounded-xl px-4 py-2.5 text-sm outline-none font-mono" 
                     />
                   </div>
-                  <div className="sm:col-span-4">
-                    <label className="block text-xs font-medium text-slate-400 mb-1">ใครเป็นคนออกเงินก่อน?</label>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-start">
+                  <div className="sm:col-span-6">
+                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">ใครเป็นคนออกเงินก่อน?</label>
                     <select 
                       value={expensePayerId} 
                       onChange={(e) => setExpensePayerId(e.target.value)} 
                       disabled={friends.length === 0} 
-                      className="w-full bg-slate-900 border border-slate-700 focus:border-emerald-500 rounded-xl px-3 py-2.5 text-sm outline-none text-slate-200"
+                      className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-emerald-500 rounded-xl px-3 py-2.5 text-sm outline-none text-slate-800 dark:text-slate-200"
                     >
                       {friends.length === 0 ? (
                         <option value="">โปรดเพิ่มชื่อเพื่อนก่อน</option>
@@ -725,16 +1002,65 @@
                       )}
                     </select>
                   </div>
+
+                  {/* อัปโหลดใบเสร็จ + แสดงรูปตัวอย่างทันที */}
+                  <div className="sm:col-span-6">
+                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">
+                      แนบรูปใบเสร็จ / สลิป (บันทึกอัตโนมัติ)
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        ref={fileInputRef}
+                        onChange={handleReceiptFileChange} 
+                        className="w-full text-xs text-slate-500 dark:text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-emerald-500/15 file:text-emerald-700 dark:file:bg-slate-700 dark:file:text-emerald-300 hover:file:bg-emerald-500/25 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-2 py-1.5 outline-none cursor-pointer" 
+                      />
+                    </div>
+
+                    {/* แสดงรูปตัวอย่างใบเสร็จที่แนบไว้ */}
+                    {receiptPreview && (
+                      <div className="mt-2 flex items-center justify-between bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-2">
+                        <div className="flex items-center gap-2.5">
+                          <img 
+                            src={receiptPreview} 
+                            alt="ตัวอย่างใบเสร็จ" 
+                            onClick={() => setViewingReceiptUrl(receiptPreview)}
+                            className="w-10 h-10 object-cover rounded-lg border border-emerald-500/40 cursor-pointer hover:opacity-80"
+                          />
+                          <div>
+                            <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">แนบรูปใบเสร็จพร้อมบันทึกแล้ว</p>
+                            <button 
+                              type="button" 
+                              onClick={() => setViewingReceiptUrl(receiptPreview)}
+                              className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
+                            >
+                              คลิกเพื่อดูภาพขยาย
+                            </button>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleClearReceipt}
+                          className="text-xs text-rose-500 hover:text-rose-400 px-2 py-1 rounded-lg hover:bg-rose-500/10"
+                          title="ลบรูปใบเสร็จนี้"
+                        >
+                          ลบรูป
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
+                {/* ส่วนเลือกคนร่วมหารในบิลนี้ */}
                 <div className="pt-2">
                   <div className="flex items-center justify-between mb-2">
-                    <label className="text-xs font-medium text-slate-300">ใครร่วมหารในรายการนี้บ้าง?</label>
+                    <label className="text-xs font-medium text-slate-700 dark:text-slate-300">คนร่วมหารในบิลนี้</label>
                     {friends.length > 0 && (
                       <button 
                         type="button" 
                         onClick={handleSelectAllParticipants} 
-                        className="text-xs text-emerald-400 hover:underline"
+                        className="text-xs text-emerald-600 dark:text-emerald-400 hover:underline font-medium"
                       >
                         {selectedParticipants.length === friends.length ? 'ยกเลิกทั้งหมด' : 'เลือกทุกคน'}
                       </button>
@@ -750,8 +1076,8 @@
                           onClick={() => handleToggleParticipant(friend.id)} 
                           className={`px-3 py-1.5 rounded-xl text-xs font-medium flex items-center gap-1.5 border transition-all ${
                             isSelected 
-                              ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-300' 
-                              : 'bg-slate-900/50 border-slate-700 text-slate-500'
+                              ? 'bg-emerald-500/15 border-emerald-500/60 text-emerald-700 dark:text-emerald-300 shadow-sm' 
+                              : 'bg-slate-100 dark:bg-slate-900/50 border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-500'
                           }`}
                         >
                           <Icon name={isSelected ? "check-square" : "square"} className="w-3.5 h-3.5" />
@@ -762,48 +1088,118 @@
                   </div>
                 </div>
 
-                <button 
-                  type="submit" 
-                  disabled={!expenseTitle.trim() || !expenseAmount || !expensePayerId || selectedParticipants.length === 0} 
-                  className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium py-2.5 px-4 rounded-xl text-sm flex items-center justify-center gap-2 shadow-lg transition-all"
-                >
-                  <Icon name="plus" className="w-4 h-4" /> บันทึกรายการจ่ายนี้
-                </button>
+                <div className="flex gap-2">
+                  <button 
+                    type="submit" 
+                    disabled={uploading || !expenseTitle.trim() || !expenseAmount || !expensePayerId || selectedParticipants.length === 0} 
+                    className={`flex-1 disabled:opacity-50 text-white font-medium py-2.5 px-4 rounded-xl text-sm flex items-center justify-center gap-2 shadow-lg transition-all ${
+                      editingExpenseId 
+                        ? 'bg-amber-600 hover:bg-amber-500' 
+                        : 'bg-emerald-600 hover:bg-emerald-500'
+                    }`}
+                  >
+                    {uploading ? (
+                      <>
+                        <Icon name="loader" className="w-4 h-4 animate-spin" /> กำลังประมวลผลใบเสร็จและบันทึก...
+                      </>
+                    ) : editingExpenseId ? (
+                      <>
+                        <Icon name="check" className="w-4 h-4" /> บันทึกการแก้ไขรายการนี้
+                      </>
+                    ) : (
+                      <>
+                        <Icon name="plus" className="w-4 h-4" /> บันทึกรายการจ่ายนี้
+                      </>
+                    )}
+                  </button>
+
+                  {editingExpenseId && (
+                    <button
+                      type="button"
+                      onClick={handleCancelEditExpense}
+                      className="px-4 py-2.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-xl text-sm font-medium transition-colors"
+                    >
+                      ยกเลิก
+                    </button>
+                  )}
+                </div>
               </form>
 
-              {/* รายการจ่ายที่บันทึกแล้ว */}
-              <div className="mt-6 border-t border-slate-700/60 pt-4">
-                <h3 className="text-sm font-semibold text-slate-300 mb-3 flex items-center justify-between">
-                  <span>รายการที่บันทึกแล้ว ({expenses.length} รายการ)</span>
-                  <span className="text-xs text-slate-400 font-normal">
-                    ยอดรวม: <strong className="text-emerald-400 font-mono text-sm">฿{calculations.totalExpenseAmount.toLocaleString()}</strong> บาท
+              {/* รายการจ่ายที่บันทึกแล้ว (เรียงตามวันที่ + ปุ่มแก้ไข) */}
+              <div className="mt-6 border-t border-slate-200 dark:border-slate-700/60 pt-4">
+                <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3 flex items-center justify-between">
+                  <span>รายการที่บันทึกแล้ว ({sortedExpenses.length} รายการ - เรียงตามวันที่)</span>
+                  <span className="text-xs text-slate-500 dark:text-slate-400 font-normal">
+                    ยอดรวม: <strong className="text-emerald-600 dark:text-emerald-400 font-mono text-sm">฿{calculations.totalExpenseAmount.toLocaleString()}</strong> บาท
                   </span>
                 </h3>
                 
-                {expenses.length === 0 ? (
-                  <div className="text-center py-5 text-slate-500 border border-dashed border-slate-700/60 rounded-xl text-xs">
+                {sortedExpenses.length === 0 ? (
+                  <div className="text-center py-5 text-slate-400 dark:text-slate-500 border border-dashed border-slate-300 dark:border-slate-700/60 rounded-xl text-xs">
                     ยังไม่มีรายการค่าใช้จ่าย
                   </div>
                 ) : (
-                  <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-                    {expenses.map((exp) => {
+                  <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                    {sortedExpenses.map((exp) => {
                       const payer = friends.find(f => f.id === exp.payerId);
                       const participantNames = exp.participantIds.map(pId => {
                         const f = friends.find(fr => fr.id === pId);
                         return f ? f.name : '';
                       }).filter(Boolean).join(', ');
+                      const isBeingEdited = editingExpenseId === exp.id;
 
                       return (
-                        <div key={exp.id} className="bg-slate-900/60 border border-slate-700/50 rounded-xl p-3 flex items-center justify-between">
-                          <div className="overflow-hidden mr-2">
-                            <p className="font-medium text-slate-200 text-sm">{exp.title} - <span className="text-emerald-400 font-mono">฿{exp.amount.toLocaleString()}</span></p>
-                            <p className="text-xs text-slate-400">
-                              จ่ายโดย: <span className="text-amber-300">{payer ? payer.name : 'ไม่ระบุ'}</span> | หาร: <span className="text-slate-300 truncate">{participantNames || 'ทุกคน'}</span>
+                        <div 
+                          key={exp.id} 
+                          className={`border rounded-xl p-3 flex items-center justify-between transition-all ${
+                            isBeingEdited 
+                              ? 'bg-amber-500/10 border-amber-500' 
+                              : 'bg-slate-50 dark:bg-slate-900/60 border-slate-200 dark:border-slate-700/50'
+                          }`}
+                        >
+                          <div className="overflow-hidden mr-2 space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[11px] bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-md font-medium">
+                                📅 {formatThaiDate(exp.date)}
+                              </span>
+                              <p className="font-medium text-slate-800 dark:text-slate-200 text-sm">
+                                {exp.title} - <span className="text-emerald-600 dark:text-emerald-400 font-mono font-semibold">฿{exp.amount.toLocaleString()}</span>
+                              </p>
+                              {exp.receiptUrl && (
+                                <button 
+                                  type="button"
+                                  onClick={() => setViewingReceiptUrl(exp.receiptUrl)}
+                                  className="inline-flex items-center gap-1 text-[11px] bg-blue-500/15 text-blue-600 dark:text-blue-300 border border-blue-500/30 px-2 py-0.5 rounded-md hover:bg-blue-500/25 transition-colors"
+                                >
+                                  <Icon name="image" className="w-3 h-3" /> ดูใบเสร็จ
+                                </button>
+                              )}
+                            </div>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                              จ่ายโดย: <span className="text-amber-600 dark:text-amber-300 font-medium">{payer ? payer.name : 'ไม่ระบุ'}</span> | หาร: <span className="text-slate-700 dark:text-slate-300 truncate">{participantNames || 'ทุกคน'}</span>
                             </p>
                           </div>
-                          <button onClick={() => handleDeleteExpense(exp.id)} className="text-slate-500 hover:text-rose-400 p-1.5 transition-colors" title="ลบรายการ">
-                            <Icon name="trash-2" className="w-4 h-4" />
-                          </button>
+
+                          {/* ปุ่มแก้ไข และ ปุ่มลบรายการ */}
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button 
+                              type="button"
+                              onClick={() => handleStartEditExpense(exp)} 
+                              className="text-slate-500 hover:text-amber-500 dark:text-slate-400 dark:hover:text-amber-300 p-1.5 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors flex items-center gap-1 text-xs"
+                              title="แก้ไขรายการนี้"
+                            >
+                              <Icon name="edit-2" className="w-4 h-4" />
+                              <span className="hidden sm:inline">แก้ไข</span>
+                            </button>
+                            <button 
+                              type="button"
+                              onClick={() => handleDeleteExpense(exp.id)} 
+                              className="text-slate-400 hover:text-rose-500 p-1.5 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors" 
+                              title="ลบรายการ"
+                            >
+                              <Icon name="trash-2" className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
                       );
                     })}
@@ -815,22 +1211,22 @@
             {/* Results Section */}
             <section className="grid grid-cols-1 md:grid-cols-12 gap-6">
               {/* ยอดรายคน */}
-              <div className="md:col-span-6 bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl flex flex-col justify-between">
+              <div className="md:col-span-6 bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-5 shadow-md dark:shadow-xl flex flex-col justify-between transition-colors">
                 <div>
                   <h2 className="text-lg font-semibold flex items-center gap-2 mb-4">
-                    <Icon name="dollar-sign" className="w-5 h-5 text-teal-400" /> สรุปยอดรายคน/กลุ่ม
+                    <Icon name="dollar-sign" className="w-5 h-5 text-teal-500 dark:text-teal-400" /> สรุปยอดรายคน/กลุ่ม
                   </h2>
                   <div className="space-y-2.5">
                     {calculations.friendTotals.length === 0 ? (
-                      <p className="text-xs text-slate-500 text-center py-6">เพิ่มรายชื่อเพื่อนเพื่อดูสรุป</p>
+                      <p className="text-xs text-slate-400 dark:text-slate-500 text-center py-6">เพิ่มรายชื่อเพื่อนเพื่อดูสรุป</p>
                     ) : (
                       calculations.friendTotals.map((f) => (
-                        <div key={f.id} className="bg-slate-900/80 border border-slate-700/60 rounded-xl p-3 flex items-center justify-between text-xs">
+                        <div key={f.id} className="bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700/60 rounded-xl p-3 flex items-center justify-between text-xs">
                           <div>
-                            <p className="font-semibold text-slate-200 text-sm">{f.name}</p>
-                            <p className="text-slate-400">หาร {f.headcount} ส่วน | จ่ายจริง {f.paid.toLocaleString()} บ. (ควรจ่าย {f.shouldPay.toLocaleString('th-TH', { maximumFractionDigits: 1 })} บ.)</p>
+                            <p className="font-semibold text-slate-800 dark:text-slate-200 text-sm">{f.name}</p>
+                            <p className="text-slate-500 dark:text-slate-400">หาร {f.headcount} ส่วน | จ่ายจริง {f.paid.toLocaleString()} บ. (ควรจ่าย {f.shouldPay.toLocaleString('th-TH', { maximumFractionDigits: 1 })} บ.)</p>
                           </div>
-                          <p className={`font-mono font-bold text-sm ${f.netBalance > 0.01 ? 'text-emerald-400' : f.netBalance < -0.01 ? 'text-rose-400' : 'text-slate-400'}`}>
+                          <p className={`font-mono font-bold text-sm ${f.netBalance > 0.01 ? 'text-emerald-600 dark:text-emerald-400' : f.netBalance < -0.01 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400'}`}>
                             {f.netBalance > 0.01 ? `+รับคืน ${f.netBalance.toLocaleString('th-TH', { maximumFractionDigits: 1 })}` : f.netBalance < -0.01 ? `ต้องจ่าย ${Math.abs(f.netBalance).toLocaleString('th-TH', { maximumFractionDigits: 1 })}` : 'สมดุล (0)'}
                           </p>
                         </div>
@@ -841,25 +1237,34 @@
               </div>
 
               {/* การโอนเงิน & ปุ่มบันทึก */}
-              <div className="md:col-span-6 bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl flex flex-col justify-between">
+              <div className="md:col-span-6 bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-5 shadow-md dark:shadow-xl flex flex-col justify-between transition-colors">
                 <div>
-                  <h2 className="text-lg font-semibold flex items-center gap-2 mb-4 text-amber-300">
-                    <Icon name="sparkles" className="w-5 h-5 text-amber-400" /> สรุปการโอนเงิน (เคลียร์ยอด)
+                  <h2 className="text-lg font-semibold flex items-center gap-2 mb-4 text-amber-600 dark:text-amber-300">
+                    <Icon name="sparkles" className="w-5 h-5 text-amber-500 dark:text-amber-400" /> สรุปการโอนเงิน (เคลียร์ยอด)
                   </h2>
                   <div className="space-y-2.5 mb-4">
                     {calculations.settlements.length === 0 ? (
-                      <div className="text-center py-6 bg-slate-900/50 rounded-xl text-slate-400 text-sm border border-slate-800">
+                      <div className="text-center py-6 bg-slate-50 dark:bg-slate-900/50 rounded-xl text-slate-400 text-sm border border-slate-200 dark:border-slate-800">
                         {expenses.length === 0 ? 'ยังไม่มีรายการค่าใช้จ่าย' : '🎉 เคลียร์ยอดลงตัวเรียบร้อยแล้ว!'}
                       </div>
                     ) : (
                       calculations.settlements.map((s, index) => (
-                        <div key={index} className="bg-slate-900 border border-amber-500/30 rounded-xl p-3 flex items-center justify-between shadow-inner">
-                          <span className="font-semibold text-rose-300 text-sm flex items-center gap-1.5">
-                            <span className="text-slate-200">{s.fromName}</span>
-                            <span className="text-amber-400 text-xs">โอนให้ 👉</span>
-                            <span className="text-emerald-300">{s.toName}</span>
+                        <div key={index} className="bg-slate-50 dark:bg-slate-900 border border-amber-500/40 rounded-xl p-3 flex items-center justify-between shadow-inner">
+                          <div>
+                            <span className="font-semibold text-sm flex items-center gap-1.5">
+                              <span className="text-slate-800 dark:text-slate-200">{s.fromName}</span>
+                              <span className="text-amber-600 dark:text-amber-400 text-xs">โอนให้ 👉</span>
+                              <span className="text-emerald-600 dark:text-emerald-300">{s.toName}</span>
+                            </span>
+                            {s.toPromptPay && (
+                              <p className="text-xs text-indigo-600 dark:text-indigo-300 mt-0.5 font-mono">
+                                💳 พร้อมเพย์: {s.toPromptPay}
+                              </p>
+                            )}
+                          </div>
+                          <span className="font-mono font-bold text-amber-600 dark:text-amber-400 text-sm">
+                            ฿{s.amount.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </span>
-                          <span className="font-mono font-bold text-amber-400 text-sm">฿{s.amount.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                         </div>
                       ))
                     )}
@@ -871,9 +1276,9 @@
                     <button
                       onClick={() => handleSaveToCloud(false)}
                       disabled={saving || (friends.length === 0 && expenses.length === 0)}
-                      className="flex-1 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-slate-100 py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all border border-slate-600"
+                      className="flex-1 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 text-slate-800 dark:text-slate-100 py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all border border-slate-300 dark:border-slate-600"
                     >
-                      <Icon name="cloud-upload" className="w-4 h-4 text-amber-400" />
+                      <Icon name="cloud-upload" className="w-4 h-4 text-amber-500 dark:text-amber-400" />
                       {saving ? "กำลังบันทึก..." : (currentTripId ? "💾 อัปเดตทริปนี้" : "☁️ บันทึกลง Cloud")}
                     </button>
 
@@ -881,7 +1286,7 @@
                       <button
                         onClick={() => handleSaveToCloud(true)}
                         disabled={saving}
-                        className="bg-slate-700 hover:bg-slate-600 text-amber-300 py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center gap-1 border border-amber-500/40"
+                        className="bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-amber-700 dark:text-amber-300 py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center gap-1 border border-amber-500/40"
                         title="เซฟเป็นทริปใหม่ ไม่ทับอันเดิม"
                       >
                         <Icon name="copy-plus" className="w-4 h-4" /> บันทึกเป็นทริปใหม่
@@ -904,32 +1309,70 @@
             </section>
           </main>
 
+          {/* Modal ดูรูปใบเสร็จ (Receipt Lightbox Modal) */}
+          {viewingReceiptUrl && (
+            <div 
+              className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4 z-50"
+              onClick={() => setViewingReceiptUrl(null)}
+            >
+              <div 
+                className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl max-w-lg w-full p-4 space-y-3 shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-2">
+                  <h3 className="text-sm font-bold flex items-center gap-2">
+                    <Icon name="image" className="w-4 h-4 text-emerald-500" /> รูปใบเสร็จ / สลิป
+                  </h3>
+                  <button onClick={() => setViewingReceiptUrl(null)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm px-2">✕</button>
+                </div>
+                <div className="max-h-[70vh] overflow-auto flex justify-center bg-slate-100 dark:bg-slate-900 rounded-xl p-2">
+                  <img src={viewingReceiptUrl} alt="Receipt" className="max-w-full h-auto rounded-lg object-contain" />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <a 
+                    href={viewingReceiptUrl} 
+                    download={`receipt_${Date.now()}.jpg`}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1"
+                  >
+                    ดาวน์โหลดรูป
+                  </a>
+                  <button 
+                    onClick={() => setViewingReceiptUrl(null)} 
+                    className="px-4 py-1.5 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-semibold"
+                  >
+                    ปิด
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* History & Edit Modal */}
           {showHistoryModal && (
             <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-              <div className="bg-slate-800 border border-slate-700 rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl max-h-[85vh] flex flex-col">
-                <div className="flex items-center justify-between border-b border-slate-700 pb-3">
+              <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl max-h-[85vh] flex flex-col">
+                <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-3">
                   <div>
-                    <h3 className="text-lg font-bold text-slate-100 flex items-center gap-2">
-                      <Icon name="folder-clock" className="w-5 h-5 text-amber-400" /> ประวัติทริปบน Cloud
+                    <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                      <Icon name="folder-clock" className="w-5 h-5 text-amber-500 dark:text-amber-400" /> ประวัติทริปบน Cloud
                     </h3>
-                    <p className="text-xs text-slate-400">เลือกทริปที่ต้องการเพื่อโหลดกลับมาดูหรือแก้ไขเพิ่มเติม</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">เลือกทริปที่ต้องการเพื่อโหลดกลับมาดูหรือแก้ไขเพิ่มเติม</p>
                   </div>
-                  <button onClick={() => setShowHistoryModal(false)} className="text-slate-400 hover:text-slate-200 text-sm p-1">✕</button>
+                  <button onClick={() => setShowHistoryModal(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm p-1">✕</button>
                 </div>
 
                 <div className="overflow-y-auto space-y-3 flex-1 pr-1">
                   {history.length === 0 ? (
-                    <div className="text-center py-12 text-slate-500 text-sm">
+                    <div className="text-center py-12 text-slate-400 dark:text-slate-500 text-sm">
                       ยังไม่มีประวัติทริปที่บันทึกไว้
                     </div>
                   ) : (
                     history.map((record) => (
-                      <div key={record.id} className="bg-slate-900 border border-slate-700/80 rounded-xl p-3.5 space-y-2 hover:border-slate-600 transition-colors">
-                        <div className="flex items-start justify-between border-b border-slate-800 pb-2">
+                      <div key={record.id} className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 rounded-xl p-3.5 space-y-2 hover:border-slate-400 dark:hover:border-slate-600 transition-colors">
+                        <div className="flex items-start justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
                           <div>
-                            <h4 className="font-bold text-amber-300 text-sm">{record.tripName || 'ทริปไม่มีชื่อ'}</h4>
-                            <span className="text-[11px] text-slate-400">📅 บันทึกเมื่อ: {record.date}</span>
+                            <h4 className="font-bold text-amber-600 dark:text-amber-300 text-sm">{record.tripName || 'ทริปไม่มีชื่อ'}</h4>
+                            <span className="text-[11px] text-slate-500 dark:text-slate-400">📅 บันทึกเมื่อ: {record.date}</span>
                           </div>
                           <div className="flex items-center gap-2">
                             <button 
@@ -940,7 +1383,7 @@
                             </button>
                             <button 
                               onClick={(e) => handleDeleteHistoryRecord(record.id, e)}
-                              className="p-1 text-slate-500 hover:text-rose-400" 
+                              className="p-1 text-slate-400 hover:text-rose-500" 
                               title="ลบทริปนี้"
                             >
                               <Icon name="trash-2" className="w-4 h-4" />
@@ -948,14 +1391,14 @@
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-between text-xs text-slate-300">
-                          <span>ยอดรวม: <strong className="text-emerald-400 font-mono">฿{record.totalAmount?.toLocaleString()}</strong></span>
-                          <span className="text-slate-400">({record.friendsCount || record.friendsData?.length || 0} คน / {record.expensesCount || record.expensesData?.length || 0} รายการ)</span>
+                        <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-300">
+                          <span>ยอดรวม: <strong className="text-emerald-600 dark:text-emerald-400 font-mono">฿{record.totalAmount?.toLocaleString()}</strong></span>
+                          <span className="text-slate-500 dark:text-slate-400">({record.friendsCount || record.friendsData?.length || 0} คน / {record.expensesCount || record.expensesData?.length || 0} รายการ)</span>
                         </div>
 
                         <details className="text-xs">
-                          <summary className="cursor-pointer text-slate-400 hover:text-slate-200">ดูสรุปข้อความเดิม</summary>
-                          <pre className="mt-2 text-[11px] font-mono bg-slate-950 p-2.5 rounded-lg border border-slate-800 text-slate-300 whitespace-pre-wrap">
+                          <summary className="cursor-pointer text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">ดูสรุปข้อความเดิม</summary>
+                          <pre className="mt-2 text-[11px] font-mono bg-slate-100 dark:bg-slate-950 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 whitespace-pre-wrap">
                             {record.summaryText}
                           </pre>
                         </details>
@@ -964,7 +1407,7 @@
                   )}
                 </div>
 
-                <button onClick={() => setShowHistoryModal(false)} className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl text-xs font-semibold">
+                <button onClick={() => setShowHistoryModal(false)} className="w-full py-2.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-semibold">
                   ปิดหน้าต่าง
                 </button>
               </div>
@@ -974,15 +1417,15 @@
           {/* Reset Confirmation Modal */}
           {showResetModal && (
             <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-              <div className="bg-slate-800 border border-slate-700 rounded-2xl max-w-sm w-full p-6 space-y-4 shadow-2xl">
-                <h3 className="text-lg font-bold text-slate-100 flex items-center gap-2 text-rose-400">
+              <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl max-w-sm w-full p-6 space-y-4 shadow-2xl">
+                <h3 className="text-lg font-bold flex items-center gap-2 text-rose-500 dark:text-rose-400">
                   <Icon name="alert-triangle" className="w-5 h-5" /> ยืนยันการเริ่มทริปใหม่?
                 </h3>
-                <p className="text-sm text-slate-300">
+                <p className="text-sm text-slate-600 dark:text-slate-300">
                   ข้อมูลเพื่อนและค่าใช้จ่ายในหน้าปัจจุบันจะถูกเคลียร์ออกทั้งหมด (ไม่มีผลกระทบต่อประวัติที่เคยเซฟไว้ใน Cloud)
                 </p>
                 <div className="flex gap-3 pt-2">
-                  <button onClick={() => setShowResetModal(false)} className="flex-1 px-4 py-2 bg-slate-700 text-slate-200 rounded-xl text-sm font-medium hover:bg-slate-600">
+                  <button onClick={() => setShowResetModal(false)} className="flex-1 px-4 py-2 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl text-sm font-medium hover:bg-slate-300 dark:hover:bg-slate-600">
                     ยกเลิก
                   </button>
                   <button onClick={confirmReset} className="flex-1 px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-sm font-medium">
