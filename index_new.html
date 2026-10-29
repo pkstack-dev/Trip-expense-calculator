@@ -53,11 +53,11 @@
     }
     const auth = firebase.auth();
     const db = firebase.firestore();
-    const storage = firebase.storage();
+    const storage = firebase.storage ? firebase.storage() : null;
 
     const { useState, useMemo, useEffect, useRef } = React;
 
-    // Custom Icon Wrapper (ใส่ key={name} เพื่อให้ React สร้าง DOM ใหม่ทุกครั้งที่ไอคอนเปลี่ยน แก้ปัญหาไอคอนค้าง)
+    // Custom Icon Wrapper (ใส่ key={name} ป้องกันไอคอนค้างตอนเปลี่ยนสถานะ)
     const Icon = ({ name, className = "w-4 h-4" }) => {
       useEffect(() => {
         if (window.lucide) {
@@ -88,6 +88,34 @@
       const mm = String(today.getMonth() + 1).padStart(2, '0');
       const dd = String(today.getDate()).padStart(2, '0');
       return `${yyyy}-${mm}-${dd}`;
+    };
+
+    // ฟังก์ชันย่อขนาดและบีบอัดรูปภาพ (ช่วยให้บันทึกใบเสร็จได้รวดเร็วและไม่ง้อ Storage)
+    const compressImageFile = (file, maxWidth = 900, quality = 0.65) => {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+          const img = new Image();
+          img.src = event.target.result;
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            let width = img.width;
+            let height = img.height;
+            if (width > maxWidth) {
+              height = Math.round((height * maxWidth) / width);
+              width = maxWidth;
+            }
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            resolve(canvas.toDataURL('image/jpeg', quality));
+          };
+          img.onerror = (err) => reject(err);
+        };
+        reader.onerror = (err) => reject(err);
+      });
     };
 
     function App() {
@@ -130,15 +158,21 @@
       const [newFriendPromptPay, setNewFriendPromptPay] = useState('');
       const [newFriendHeadcount, setNewFriendHeadcount] = useState(1);
 
-      // Inputs state: Expenses
+      // Inputs state: Expenses & Edit Mode
+      const [editingExpenseId, setEditingExpenseId] = useState(null);
       const [expenseDate, setExpenseDate] = useState(getTodayDateString());
       const [expenseTitle, setExpenseTitle] = useState('');
       const [expenseAmount, setExpenseAmount] = useState('');
       const [expensePayerId, setExpensePayerId] = useState('');
       const [selectedParticipants, setSelectedParticipants] = useState([]);
+      
+      // Receipt States
       const [receiptFile, setReceiptFile] = useState(null);
+      const [receiptPreview, setReceiptPreview] = useState(null);
       const [uploading, setUploading] = useState(false);
+      const [viewingReceiptUrl, setViewingReceiptUrl] = useState(null);
       const fileInputRef = useRef(null);
+      const expenseSectionRef = useRef(null);
       
       // UI Modals & Feedback
       const [copied, setCopied] = useState(false);
@@ -228,7 +262,7 @@
         }
       }, [friends, expensePayerId]);
 
-      // เพิ่มเพื่อนใหม่ (ติ๊กถูกเลือกหารให้อัตโนมัติทันทีตั้งแต่คนแรก)
+      // เพิ่มเพื่อนใหม่
       const handleAddFriend = (e) => {
         e.preventDefault();
         if (!newFriendName.trim()) return;
@@ -241,7 +275,9 @@
         };
 
         setFriends(prev => [...prev, newFriend]);
-        setSelectedParticipants(prev => [...prev, newFriend.id]);
+        if (!editingExpenseId) {
+          setSelectedParticipants(prev => [...prev, newFriend.id]);
+        }
         if (!expensePayerId) {
           setExpensePayerId(newFriend.id);
         }
@@ -285,58 +321,136 @@
         }
       };
 
-      const handleAddExpense = async (e) => {
+      // เมื่อผู้ใช้เลือกไฟล์ใบเสร็จ ให้บีบอัดและสร้าง Preview ทันที
+      const handleReceiptFileChange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        if (!file.type.startsWith('image/')) {
+          showAlert("กรุณาเลือกไฟล์รูปภาพเท่านั้น", "error");
+          return;
+        }
+
+        try {
+          setReceiptFile(file);
+          const compressedDataUrl = await compressImageFile(file);
+          setReceiptPreview(compressedDataUrl);
+        } catch (err) {
+          console.error("Image processing error:", err);
+          showAlert("ไม่สามารถอ่านไฟล์รูปภาพนี้ได้", "error");
+        }
+      };
+
+      // ลบรูปใบเสร็จออกจากฟอร์มกำลังบันทึก/แก้ไข
+      const handleClearReceipt = () => {
+        setReceiptFile(null);
+        setReceiptPreview(null);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      };
+
+      // เริ่มแก้ไขรายการค่าใช้จ่าย
+      const handleStartEditExpense = (exp) => {
+        setEditingExpenseId(exp.id);
+        setExpenseDate(exp.date || getTodayDateString());
+        setExpenseTitle(exp.title);
+        setExpenseAmount(exp.amount.toString());
+        setExpensePayerId(exp.payerId);
+        setSelectedParticipants(exp.participantIds || []);
+        setReceiptFile(null);
+        setReceiptPreview(exp.receiptUrl || null);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+
+        if (expenseSectionRef.current) {
+          expenseSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      };
+
+      // ยกเลิกโหมดแก้ไขรายการ
+      const handleCancelEditExpense = () => {
+        setEditingExpenseId(null);
+        setExpenseDate(getTodayDateString());
+        setExpenseTitle('');
+        setExpenseAmount('');
+        if (friends.length > 0) setExpensePayerId(friends[0].id);
+        setSelectedParticipants(friends.map(f => f.id));
+        handleClearReceipt();
+      };
+
+      // บันทึก หรือ อัปเดตรายการค่าใช้จ่าย
+      const handleSaveExpenseForm = async (e) => {
         e.preventDefault();
         const numAmount = parseFloat(expenseAmount);
         if (!expenseTitle.trim() || isNaN(numAmount) || numAmount <= 0 || !expensePayerId || selectedParticipants.length === 0) {
-          showAlert("กรุณากรอกข้อมูลรายการและจำนวนเงินให้ถูกต้อง", "error");
+          showAlert("กรุณากรอกข้อมูลรายการ จำนวนเงิน และเลือกคนหารให้ครบถ้วน", "error");
           return;
         }
 
         setUploading(true);
-        let receiptUrl = null;
+        let finalReceiptUrl = receiptPreview || null;
 
-        if (receiptFile) {
-          if (!user) {
-            showAlert("กรุณาเข้าสู่ระบบ Google ก่อนแนบรูปใบเสร็จขึ้น Cloud", "error");
-            setUploading(false);
-            return;
-          }
+        // หากมีการเลือกไฟล์ใหม่ และล็อกอินอยู่ จะลองอัปโหลดไปที่ Firebase Storage (มี Timeout 3.5 วินาที ถ้าไม่ผ่านจะใช้ภาพที่บีบอัดไว้แทนทันที)
+        if (receiptFile && user && storage) {
           try {
-            const fileExt = receiptFile.name.split('.').pop();
-            const fileName = `receipt_${Date.now()}.${fileExt}`;
+            const fileName = `receipt_${Date.now()}.jpg`;
             const fileRef = storage.ref().child(`receipts/${user.uid}/${fileName}`);
-            await fileRef.put(receiptFile);
-            receiptUrl = await fileRef.getDownloadURL();
+            
+            const uploadTask = fileRef.putString(receiptPreview, 'data_url').then(() => fileRef.getDownloadURL());
+            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Storage timeout")), 3500));
+            
+            finalReceiptUrl = await Promise.race([uploadTask, timeoutPromise]);
           } catch (err) {
-            console.error("Upload error:", err);
-            showAlert("อัปโหลดใบเสร็จไม่สำเร็จ กรุณาตรวจสอบ Firebase Storage Rules", "error");
-            setUploading(false);
-            return;
+            // หาก Storage ยังไม่ได้เปิด หรือติด Rules ระบบจะใช้ภาพ Base64 ที่บีบอัดไว้แล้วแทนโดยอัตโนมัติ
+            console.warn("ใช้ระบบบันทึกภาพใบเสร็จแบบฝังในรายการโดยตรง:", err.message);
+            finalReceiptUrl = receiptPreview;
           }
         }
 
-        const newExpense = {
-          id: 'exp_' + Date.now().toString(),
-          date: expenseDate || getTodayDateString(),
-          title: expenseTitle.trim(),
-          amount: numAmount,
-          payerId: expensePayerId,
-          participantIds: [...selectedParticipants],
-          receiptUrl: receiptUrl,
-          createdAtMs: Date.now()
-        };
+        if (editingExpenseId) {
+          // อัปเดตรายการเดิม
+          setExpenses(prev => prev.map(exp => {
+            if (exp.id === editingExpenseId) {
+              return {
+                ...exp,
+                date: expenseDate || getTodayDateString(),
+                title: expenseTitle.trim(),
+                amount: numAmount,
+                payerId: expensePayerId,
+                participantIds: [...selectedParticipants],
+                receiptUrl: finalReceiptUrl
+              };
+            }
+            return exp;
+          }));
+          showAlert(`แก้ไขรายการ "${expenseTitle.trim()}" เรียบร้อยแล้ว!`, "success");
+          setEditingExpenseId(null);
+        } else {
+          // เพิ่มรายการใหม่
+          const newExpense = {
+            id: 'exp_' + Date.now().toString(),
+            date: expenseDate || getTodayDateString(),
+            title: expenseTitle.trim(),
+            amount: numAmount,
+            payerId: expensePayerId,
+            participantIds: [...selectedParticipants],
+            receiptUrl: finalReceiptUrl,
+            createdAtMs: Date.now()
+          };
+          setExpenses(prev => [...prev, newExpense]);
+          showAlert(`เพิ่มรายการ "${expenseTitle.trim()}" เรียบร้อย!`, "success");
+        }
 
-        setExpenses(prev => [...prev, newExpense]);
+        // รีเซ็ตฟอร์ม
         setExpenseTitle('');
         setExpenseAmount('');
-        setReceiptFile(null);
-        if (fileInputRef.current) fileInputRef.current.value = "";
+        handleClearReceipt();
         setSelectedParticipants(friends.map(f => f.id));
         setUploading(false);
       };
 
       const handleDeleteExpense = (id) => {
+        if (editingExpenseId === id) {
+          handleCancelEditExpense();
+        }
         setExpenses(expenses.filter(e => e.id !== id));
       };
 
@@ -462,7 +576,7 @@
           summaryText += `📋 *รายการค่าใช้จ่าย (เรียงตามวันที่):*\n`;
           sortedExpenses.forEach(exp => {
             const payer = friends.find(f => f.id === exp.payerId);
-            summaryText += `- [${formatThaiDate(exp.date)}] ${exp.title}: ${exp.amount.toLocaleString()} บ. (${payer ? payer.name : '-'} จ่าย)${exp.receiptUrl ? ` [มีใบเสร็จ]` : ''}\n`;
+            summaryText += `- [${formatThaiDate(exp.date)}] ${exp.title}: ${exp.amount.toLocaleString()} บ. (${payer ? payer.name : '-'} จ่าย)${exp.receiptUrl ? ` 🧾` : ''}\n`;
           });
           summaryText += `\n`;
         }
@@ -536,6 +650,8 @@
         setFriends(loadedFriends);
         setExpenses(record.expensesData || []);
         setSelectedParticipants(loadedFriends.map(f => f.id));
+        setEditingExpenseId(null);
+        handleClearReceipt();
         setCurrentTripId(record.id);
         setShowHistoryModal(false);
         showAlert(`📥 โหลดข้อมูล "${record.tripName || 'ทริป'}" เพื่อแก้ไขเรียบร้อย`, "info");
@@ -582,6 +698,8 @@
         setFriends([]);
         setExpenses([]);
         setSelectedParticipants([]);
+        setEditingExpenseId(null);
+        handleClearReceipt();
         setCurrentTripId(null);
         setTripName(getDefaultTripName());
         setShowResetModal(false);
@@ -618,13 +736,12 @@
                       </span>
                     )}
                   </h1>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">คำนวณง่าย หารแฟร์ เซฟลง Cloud แก้ไขได้ตลอดเวลา</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">คำนวณง่าย หารแฟร์ แนบใบเสร็จ & แก้ไขได้ตลอดเวลา</p>
                 </div>
               </div>
 
               {/* Theme Toggle, Login & Actions */}
               <div className="flex items-center gap-2">
-                {/* ปุ่มสลับโหมดกลางวัน / กลางคืน */}
                 <button
                   onClick={() => setIsDarkMode(!isDarkMode)}
                   className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700/70 dark:hover:bg-slate-700 text-slate-700 dark:text-amber-300 transition-colors flex items-center gap-1.5 text-xs font-medium"
@@ -723,7 +840,7 @@
                 <div className="sm:col-span-4">
                   <input
                     type="text"
-                    placeholder="ชื่อเพื่อน ..."
+                    placeholder="ชื่อเพื่อน เช่น สมชาย, ครอบครัวเอ, หรือชื่อเล่น..."
                     value={newFriendName}
                     onChange={(e) => setNewFriendName(e.target.value)}
                     className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-xl px-4 py-2.5 text-sm outline-none"
@@ -784,13 +901,36 @@
               )}
             </section>
 
-            {/* Step 2: Expenses */}
-            <section className="bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-5 shadow-md dark:shadow-xl transition-colors">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-7 h-7 rounded-lg bg-emerald-500/15 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold text-sm">2</div>
-                <h2 className="text-lg font-semibold flex items-center gap-2">
-                  <Icon name="receipt" className="w-5 h-5 text-emerald-500 dark:text-emerald-400" /> บันทึกรายการค่าใช้จ่าย
-                </h2>
+            {/* Step 2: Expenses (Add & Edit) */}
+            <section 
+              ref={expenseSectionRef}
+              className={`bg-white dark:bg-slate-800/80 border rounded-2xl p-5 shadow-md dark:shadow-xl transition-all ${
+                editingExpenseId 
+                  ? 'border-amber-500 ring-2 ring-amber-500/20' 
+                  : 'border-slate-200 dark:border-slate-700/80'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-sm ${
+                    editingExpenseId 
+                      ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' 
+                      : 'bg-emerald-500/15 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                  }`}>2</div>
+                  <h2 className="text-lg font-semibold flex items-center gap-2">
+                    <Icon name={editingExpenseId ? "edit-3" : "receipt"} className={`w-5 h-5 ${editingExpenseId ? 'text-amber-500' : 'text-emerald-500 dark:text-emerald-400'}`} />
+                    {editingExpenseId ? 'กำลังแก้ไขรายการค่าใช้จ่าย' : 'บันทึกรายการค่าใช้จ่าย'}
+                  </h2>
+                </div>
+                {editingExpenseId && (
+                  <button
+                    type="button"
+                    onClick={handleCancelEditExpense}
+                    className="text-xs bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 px-3 py-1.5 rounded-xl font-medium flex items-center gap-1"
+                  >
+                    ✕ ยกเลิกการแก้ไข
+                  </button>
+                )}
               </div>
 
               {/* หมวดหมู่ด่วน */}
@@ -810,7 +950,7 @@
                 </div>
               </div>
 
-              <form onSubmit={handleAddExpense} className="space-y-4">
+              <form onSubmit={handleSaveExpenseForm} className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
                   <div className="sm:col-span-3">
                     <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">วันที่ใช้จ่าย</label>
@@ -844,7 +984,7 @@
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-start">
                   <div className="sm:col-span-6">
                     <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">ใครเป็นคนออกเงินก่อน?</label>
                     <select 
@@ -862,19 +1002,57 @@
                       )}
                     </select>
                   </div>
+
+                  {/* อัปโหลดใบเสร็จ + แสดงรูปตัวอย่างทันที */}
                   <div className="sm:col-span-6">
-                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">อัปโหลดรูปใบเสร็จ / สลิป (ถ้ามี)</label>
-                    <input 
-                      type="file" 
-                      accept="image/*" 
-                      ref={fileInputRef}
-                      onChange={(e) => setReceiptFile(e.target.files[0] || null)} 
-                      className="w-full text-xs text-slate-500 dark:text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-emerald-500/15 file:text-emerald-700 dark:file:bg-slate-700 dark:file:text-emerald-300 hover:file:bg-emerald-500/25 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-2 py-1.5 outline-none cursor-pointer" 
-                    />
+                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">
+                      แนบรูปใบเสร็จ / สลิป (บันทึกอัตโนมัติ)
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        ref={fileInputRef}
+                        onChange={handleReceiptFileChange} 
+                        className="w-full text-xs text-slate-500 dark:text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-emerald-500/15 file:text-emerald-700 dark:file:bg-slate-700 dark:file:text-emerald-300 hover:file:bg-emerald-500/25 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-2 py-1.5 outline-none cursor-pointer" 
+                      />
+                    </div>
+
+                    {/* แสดงรูปตัวอย่างใบเสร็จที่แนบไว้ */}
+                    {receiptPreview && (
+                      <div className="mt-2 flex items-center justify-between bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-2">
+                        <div className="flex items-center gap-2.5">
+                          <img 
+                            src={receiptPreview} 
+                            alt="ตัวอย่างใบเสร็จ" 
+                            onClick={() => setViewingReceiptUrl(receiptPreview)}
+                            className="w-10 h-10 object-cover rounded-lg border border-emerald-500/40 cursor-pointer hover:opacity-80"
+                          />
+                          <div>
+                            <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">แนบรูปใบเสร็จพร้อมบันทึกแล้ว</p>
+                            <button 
+                              type="button" 
+                              onClick={() => setViewingReceiptUrl(receiptPreview)}
+                              className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
+                            >
+                              คลิกเพื่อดูภาพขยาย
+                            </button>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleClearReceipt}
+                          className="text-xs text-rose-500 hover:text-rose-400 px-2 py-1 rounded-lg hover:bg-rose-500/10"
+                          title="ลบรูปใบเสร็จนี้"
+                        >
+                          ลบรูป
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                {/* ส่วนเลือกคนร่วมหารในบิลนี้ (แก้บั๊กไอคอนติ๊กถูกค้างเรียบร้อย) */}
+                {/* ส่วนเลือกคนร่วมหารในบิลนี้ */}
                 <div className="pt-2">
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-xs font-medium text-slate-700 dark:text-slate-300">คนร่วมหารในบิลนี้</label>
@@ -910,24 +1088,44 @@
                   </div>
                 </div>
 
-                <button 
-                  type="submit" 
-                  disabled={uploading || !expenseTitle.trim() || !expenseAmount || !expensePayerId || selectedParticipants.length === 0} 
-                  className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium py-2.5 px-4 rounded-xl text-sm flex items-center justify-center gap-2 shadow-lg transition-all"
-                >
-                  {uploading ? (
-                    <>
-                      <Icon name="loader" className="w-4 h-4 animate-spin" /> กำลังอัปโหลดใบเสร็จและบันทึก...
-                    </>
-                  ) : (
-                    <>
-                      <Icon name="plus" className="w-4 h-4" /> บันทึกรายการจ่ายนี้
-                    </>
+                <div className="flex gap-2">
+                  <button 
+                    type="submit" 
+                    disabled={uploading || !expenseTitle.trim() || !expenseAmount || !expensePayerId || selectedParticipants.length === 0} 
+                    className={`flex-1 disabled:opacity-50 text-white font-medium py-2.5 px-4 rounded-xl text-sm flex items-center justify-center gap-2 shadow-lg transition-all ${
+                      editingExpenseId 
+                        ? 'bg-amber-600 hover:bg-amber-500' 
+                        : 'bg-emerald-600 hover:bg-emerald-500'
+                    }`}
+                  >
+                    {uploading ? (
+                      <>
+                        <Icon name="loader" className="w-4 h-4 animate-spin" /> กำลังประมวลผลใบเสร็จและบันทึก...
+                      </>
+                    ) : editingExpenseId ? (
+                      <>
+                        <Icon name="check" className="w-4 h-4" /> บันทึกการแก้ไขรายการนี้
+                      </>
+                    ) : (
+                      <>
+                        <Icon name="plus" className="w-4 h-4" /> บันทึกรายการจ่ายนี้
+                      </>
+                    )}
+                  </button>
+
+                  {editingExpenseId && (
+                    <button
+                      type="button"
+                      onClick={handleCancelEditExpense}
+                      className="px-4 py-2.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-xl text-sm font-medium transition-colors"
+                    >
+                      ยกเลิก
+                    </button>
                   )}
-                </button>
+                </div>
               </form>
 
-              {/* รายการจ่ายที่บันทึกแล้ว (เรียงตามวันที่) */}
+              {/* รายการจ่ายที่บันทึกแล้ว (เรียงตามวันที่ + ปุ่มแก้ไข) */}
               <div className="mt-6 border-t border-slate-200 dark:border-slate-700/60 pt-4">
                 <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3 flex items-center justify-between">
                   <span>รายการที่บันทึกแล้ว ({sortedExpenses.length} รายการ - เรียงตามวันที่)</span>
@@ -941,16 +1139,24 @@
                     ยังไม่มีรายการค่าใช้จ่าย
                   </div>
                 ) : (
-                  <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                  <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
                     {sortedExpenses.map((exp) => {
                       const payer = friends.find(f => f.id === exp.payerId);
                       const participantNames = exp.participantIds.map(pId => {
                         const f = friends.find(fr => fr.id === pId);
                         return f ? f.name : '';
                       }).filter(Boolean).join(', ');
+                      const isBeingEdited = editingExpenseId === exp.id;
 
                       return (
-                        <div key={exp.id} className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/50 rounded-xl p-3 flex items-center justify-between">
+                        <div 
+                          key={exp.id} 
+                          className={`border rounded-xl p-3 flex items-center justify-between transition-all ${
+                            isBeingEdited 
+                              ? 'bg-amber-500/10 border-amber-500' 
+                              : 'bg-slate-50 dark:bg-slate-900/60 border-slate-200 dark:border-slate-700/50'
+                          }`}
+                        >
                           <div className="overflow-hidden mr-2 space-y-1">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-[11px] bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-md font-medium">
@@ -960,23 +1166,40 @@
                                 {exp.title} - <span className="text-emerald-600 dark:text-emerald-400 font-mono font-semibold">฿{exp.amount.toLocaleString()}</span>
                               </p>
                               {exp.receiptUrl && (
-                                <a 
-                                  href={exp.receiptUrl} 
-                                  target="_blank" 
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-[11px] bg-blue-500/15 text-blue-600 dark:text-blue-300 border border-blue-500/30 px-2 py-0.5 rounded-md hover:underline"
+                                <button 
+                                  type="button"
+                                  onClick={() => setViewingReceiptUrl(exp.receiptUrl)}
+                                  className="inline-flex items-center gap-1 text-[11px] bg-blue-500/15 text-blue-600 dark:text-blue-300 border border-blue-500/30 px-2 py-0.5 rounded-md hover:bg-blue-500/25 transition-colors"
                                 >
                                   <Icon name="image" className="w-3 h-3" /> ดูใบเสร็จ
-                                </a>
+                                </button>
                               )}
                             </div>
                             <p className="text-xs text-slate-500 dark:text-slate-400">
                               จ่ายโดย: <span className="text-amber-600 dark:text-amber-300 font-medium">{payer ? payer.name : 'ไม่ระบุ'}</span> | หาร: <span className="text-slate-700 dark:text-slate-300 truncate">{participantNames || 'ทุกคน'}</span>
                             </p>
                           </div>
-                          <button onClick={() => handleDeleteExpense(exp.id)} className="text-slate-400 hover:text-rose-500 p-1.5 transition-colors shrink-0" title="ลบรายการ">
-                            <Icon name="trash-2" className="w-4 h-4" />
-                          </button>
+
+                          {/* ปุ่มแก้ไข และ ปุ่มลบรายการ */}
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button 
+                              type="button"
+                              onClick={() => handleStartEditExpense(exp)} 
+                              className="text-slate-500 hover:text-amber-500 dark:text-slate-400 dark:hover:text-amber-300 p-1.5 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors flex items-center gap-1 text-xs"
+                              title="แก้ไขรายการนี้"
+                            >
+                              <Icon name="edit-2" className="w-4 h-4" />
+                              <span className="hidden sm:inline">แก้ไข</span>
+                            </button>
+                            <button 
+                              type="button"
+                              onClick={() => handleDeleteExpense(exp.id)} 
+                              className="text-slate-400 hover:text-rose-500 p-1.5 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors" 
+                              title="ลบรายการ"
+                            >
+                              <Icon name="trash-2" className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
                       );
                     })}
@@ -1085,6 +1308,44 @@
               </div>
             </section>
           </main>
+
+          {/* Modal ดูรูปใบเสร็จ (Receipt Lightbox Modal) */}
+          {viewingReceiptUrl && (
+            <div 
+              className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4 z-50"
+              onClick={() => setViewingReceiptUrl(null)}
+            >
+              <div 
+                className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl max-w-lg w-full p-4 space-y-3 shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-2">
+                  <h3 className="text-sm font-bold flex items-center gap-2">
+                    <Icon name="image" className="w-4 h-4 text-emerald-500" /> รูปใบเสร็จ / สลิป
+                  </h3>
+                  <button onClick={() => setViewingReceiptUrl(null)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm px-2">✕</button>
+                </div>
+                <div className="max-h-[70vh] overflow-auto flex justify-center bg-slate-100 dark:bg-slate-900 rounded-xl p-2">
+                  <img src={viewingReceiptUrl} alt="Receipt" className="max-w-full h-auto rounded-lg object-contain" />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <a 
+                    href={viewingReceiptUrl} 
+                    download={`receipt_${Date.now()}.jpg`}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1"
+                  >
+                    ดาวน์โหลดรูป
+                  </a>
+                  <button 
+                    onClick={() => setViewingReceiptUrl(null)} 
+                    className="px-4 py-1.5 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-semibold"
+                  >
+                    ปิด
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* History & Edit Modal */}
           {showHistoryModal && (
