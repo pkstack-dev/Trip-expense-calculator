@@ -19,6 +19,12 @@
   <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..600,1,0" rel="stylesheet" />
 
+  <!-- Firebase SDKs (Compat version for direct HTML script import, matching original web setup) -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-storage-compat.js"></script>
+
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
@@ -109,14 +115,14 @@
             <div class="qa-icon-box qa-indigo">
               <span class="material-symbols-rounded">contacts</span>
             </div>
-            <span class="qa-label">สมุดเพื่อน</span>
+            <span class="qa-label" id="qaFriendBookLabel">สมุดเพื่อน</span>
           </button>
 
           <button type="button" id="qaHistory" class="quick-action-btn">
             <div class="qa-icon-box qa-amber">
               <span class="material-symbols-rounded">history</span>
             </div>
-            <span class="qa-label">ประวัติ</span>
+            <span class="qa-label" id="qaHistoryLabel">ประวัติ</span>
           </button>
 
           <button type="button" id="qaSaveCloud" class="quick-action-btn">
@@ -534,7 +540,7 @@
         <div class="friend-book-add-row">
           <label class="app-textfield" style="flex:1">
             <div class="field-inner">
-              <span class="field-label">ชื่อเพื่อน</span>
+              <span class="field-label" id="friendBookNameFieldLabel">ชื่อเพื่อน</span>
               <input type="text" id="friendBookNewName" placeholder="ชื่อ" autocomplete="off" />
             </div>
           </label>
@@ -545,7 +551,7 @@
             </div>
           </label>
           <button type="button" id="btnAddFriendToBook" class="icon-filled-btn" disabled aria-label="เพิ่มลงสมุดเพื่อน">
-            <span class="material-symbols-rounded">add</span>
+            <span class="material-symbols-rounded" id="btnAddFriendToBookIcon">add</span>
           </button>
         </div>
 
@@ -602,7 +608,7 @@
   <div id="dialogNewTripConfirm" class="modal-backdrop hidden" role="dialog" aria-modal="true">
     <div class="alert-dialog">
       <h3 class="dialog-title">ยืนยันการเริ่มทริปใหม่?</h3>
-      <p class="dialog-text">ข้อมูลทริปปัจจุบันที่ยังไม่บันทึกลง Cloud จะหายไป</p>
+      <p class="dialog-text">ข้อมูลหน้าปัจจุบันจะถูกล้างเพื่อเริ่มทริปใหม่ (ไม่กระทบประวัติทริปบน Cloud และสมุดรายชื่อเพื่อนที่เซฟไว้)</p>
       <div class="dialog-actions">
         <button type="button" id="btnCancelNewTrip" class="btn-text">ยกเลิก</button>
         <button type="button" id="btnConfirmNewTrip" class="btn btn-primary">เริ่มทริปใหม่</button>
