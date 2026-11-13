@@ -293,7 +293,6 @@
         }
       };
 
-      // บันทึกเพื่อนเข้าสมุดอัตโนมัติเมื่อเพิ่มหรือแก้ไขเพื่อนในทริป
       const upsertSavedFriend = (name, promptPay, previousName = null) => {
         const trimmedName = name.trim();
         const trimmedPP = (promptPay || '').trim();
@@ -319,7 +318,6 @@
         persistSavedFriends(updatedList);
       };
 
-      // จัดการสมุดรายชื่อใน Modal
       const handleAddOrUpdateSavedFriend = async (e) => {
         e.preventDefault();
         if (!manageFriendName.trim()) return;
@@ -383,7 +381,6 @@
         setShowFriendDropdown(false);
       };
 
-      // เพิ่มเพื่อนทั้งหมดจากสมุดเข้าทริปในคลิกเดียว
       const handleAddAllSavedFriendsToTrip = () => {
         const notAddedYet = savedFriends.filter(sf => !friends.some(f => f.name.toLowerCase() === sf.name.toLowerCase()));
         if (notAddedYet.length === 0) return;
@@ -405,14 +402,12 @@
         showAlert(`เพิ่มเพื่อนจากสมุดเข้าทริป ${newFriendsBatch.length} คนเรียบร้อย!`, "success");
       };
 
-      // เลือกเพื่อนจาก Dropdown Autocomplete
       const handleSelectFriendFromDropdown = (sf) => {
         setNewFriendName(sf.name);
         setNewFriendPromptPay(sf.promptPay || '');
         setShowFriendDropdown(false);
       };
 
-      // เริ่มแก้ไขเพื่อนในการ์ดทริปปัจจุบัน
       const handleStartEditTripFriend = (friend) => {
         setEditingTripFriendId(friend.id);
         setEditTripFriendName(friend.name);
@@ -420,7 +415,6 @@
         setEditTripFriendHeadcount(friend.headcount || 1);
       };
 
-      // บันทึกการแก้ไขเพื่อนในทริปปัจจุบัน (+ อัปเดตลงสมุดจำด้วย)
       const handleSaveEditTripFriend = (friendId) => {
         if (!editTripFriendName.trim()) {
           showAlert("กรุณาระบุชื่อเพื่อน", "error");
@@ -465,7 +459,6 @@
         setSelectedParticipants(selectedParticipants.length === friends.length ? [] : friends.map(f => f.id));
       };
 
-      // กรองรายชื่อใน Dropdown ตามคำที่พิมพ์
       const filteredSavedFriends = useMemo(() => {
         const keyword = newFriendName.trim().toLowerCase();
         if (!keyword) return savedFriends;
@@ -648,35 +641,30 @@
         return dateObj.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
       };
 
+      // สรุปข้อความสำหรับส่งลง LINE (รูปแบบกระชับ ไม่มีเครื่องหมาย *)
       const generateSummaryText = () => {
         const finalTripName = tripName.trim() || getDefaultTripName();
-        let summaryText = `🏕️ *สรุปค่าใช้จ่าย: ${finalTripName}*\n`;
-        summaryText += `💰 ยอดรวมทั้งหมด: ${calculations.totalExpenseAmount.toLocaleString()} บาท\n\n`;
+        let summaryText = `🏕️ สรุปค่าใช้จ่าย: ${finalTripName}\n`;
+        summaryText += `💰 ยอดรวมทั้งหมด: ${calculations.totalExpenseAmount.toLocaleString()} บาท\n`;
+        summaryText += `━━━━━━━━━━━━━━━━━━\n\n`;
 
-        if (sortedExpenses.length > 0) {
-          summaryText += `📋 *รายการค่าใช้จ่าย (เรียงตามวันที่):*\n`;
-          sortedExpenses.forEach(exp => {
-            const payer = friends.find(f => f.id === exp.payerId);
-            summaryText += `- [${formatThaiDate(exp.date)}] ${exp.title}: ${exp.amount.toLocaleString()} บ. (${payer ? payer.name : '-'} จ่าย)${exp.receiptUrl ? ` 🧾` : ''}\n`;
-          });
-          summaryText += `\n`;
-        }
-        
-        summaryText += `👥 *รายละเอียดต่อคน/กลุ่ม:*\n`;
+        summaryText += `👥 รายละเอียดต่อคน/กลุ่ม\n`;
         calculations.friendTotals.forEach(f => {
-          summaryText += `- ${f.name} (${f.headcount} คน): จ่ายแล้ว ${f.paid.toLocaleString()} บ. | ค่าใช้จ่ายจริง ${f.shouldPay.toLocaleString('th-TH', { maximumFractionDigits: 2 })} บ.\n`;
+          summaryText += `- ${f.name} (${f.headcount} คน): จ่ายแล้ว ${f.paid.toLocaleString()} บ.\n`;
         });
 
-        summaryText += `\n💸 *สรุปการเคลียร์ยอด (ใครโอนให้ใคร):*\n`;
+        summaryText += `\n💸 สรุปการเคลียร์ยอด\n`;
         if (calculations.settlements.length === 0) {
           summaryText += `✨ เคลียร์ยอดครบแล้ว ไม่มีใครต้องโอนเพิ่ม!\n`;
         } else {
           calculations.settlements.forEach(s => {
-            const ppInfo = s.toPromptPay ? ` (พร้อมเพย์: ${s.toPromptPay})` : '';
-            summaryText += `- 👉 ${s.fromName} โอนให้ ${s.toName}${ppInfo} : *${s.amount.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท*\n`;
+            summaryText += `• ${s.fromName} โอนให้ ${s.toName} : ${s.amount.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท\n`;
+            if (s.toPromptPay) {
+              summaryText += `   💳 พร้อมเพย์: ${s.toPromptPay}\n`;
+            }
           });
         }
-        return summaryText;
+        return summaryText.trim();
       };
 
       const handleSaveToCloud = async (saveAsNew = false) => {
@@ -857,7 +845,6 @@
               </div>
 
               <form onSubmit={handleAddFriendSubmit} className="grid grid-cols-1 sm:grid-cols-12 gap-3">
-                {/* ช่องกรอกชื่อเพื่อน พร้อม Dropdown เลือกรายชื่อที่จดจำไว้ */}
                 <div className="sm:col-span-4 relative" ref={dropdownWrapperRef}>
                   <div className="relative">
                     <input 
@@ -883,7 +870,6 @@
                     )}
                   </div>
 
-                  {/* Dropdown ลิสต์เพื่อนที่เคยบันทึกไว้ */}
                   {showFriendDropdown && filteredSavedFriends.length > 0 && (
                     <div className="absolute z-30 left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl max-h-56 overflow-y-auto py-1">
                       <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 border-b border-slate-100 dark:border-slate-700/70">
@@ -932,7 +918,6 @@
                 </div>
               </form>
 
-              {/* ส่วนแสดงสมุดรายชื่อเพื่อนที่จดจำไว้ สำหรับคลิกเพิ่มเข้าทริปทันที */}
               {savedFriends.length > 0 ? (
                 <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-700/80">
                   <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
@@ -987,7 +972,6 @@
                 </div>
               )}
 
-              {/* การ์ดรายชื่อเพื่อนที่อยู่ในทริปนี้แล้ว (พร้อมปุ่มแก้ไขข้อมูลเพื่อน) */}
               {friends.length > 0 && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 mt-4">
                   {friends.map((friend) => {
