@@ -1,0 +1,17 @@
+{
+  "name": "หารค่าใช้จ่ายทริป — Trip Expense Calculator",
+  "short_name": "หารค่าทริป",
+  "description": "เว็บแอปหารค่าใช้จ่ายทริป คำนวณยอดหารตามจำนวนคน สรุปยอดโอนพร้อมเพย์ แชร์เข้า LINE และซิงค์ข้อมูลผ่าน Cloud",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0A0F1E",
+  "theme_color": "#1E1B4B",
+  "icons": [
+    {
+      "src": "./assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

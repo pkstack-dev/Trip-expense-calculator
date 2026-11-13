@@ -1,1404 +1,620 @@
 <!DOCTYPE html>
-<html lang="th" class="dark">
+<html lang="th">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ระบบหารค่าใช้จ่ายทริปเพื่อน & บันทึกประวัติ (Cloud)</title>
-  
-  <!-- React & ReactDOM CDN -->
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-  
-  <!-- Babel CDN for JSX -->
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  
-  <!-- Tailwind CSS CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      darkMode: 'class',
-    }
-  </script>
-  
-  <!-- Lucide Icons CDN -->
-  <script src="https://unpkg.com/lucide@latest"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#1E1B4B" id="metaThemeColor" />
+  <meta name="description" content="เว็บแอปหารค่าใช้จ่ายทริป คำนวณยอดหารตามจำนวนคน สรุปยอดโอนพร้อมเพย์ แชร์เข้า LINE และซิงค์ข้อมูลผ่าน Cloud" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>หารค่าใช้จ่ายทริป — Trip Expense Calculator</title>
 
-  <!-- Firebase SDKs (Compat version for HTML script import) -->
-  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-storage-compat.js"></script>
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="icon" type="image/svg+xml" href="./assets/icon.svg" />
+  <link rel="apple-touch-icon" href="./assets/icon.svg" />
+
+  <!-- Fonts & Material Symbols -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..600,1,0" rel="stylesheet" />
+
+  <link rel="stylesheet" href="./styles.css" />
 </head>
-<body class="bg-slate-100 text-slate-800 dark:bg-slate-900 dark:text-slate-100 font-sans min-h-screen transition-colors duration-200">
-
-  <div id="root"></div>
-
-  <script type="text/babel">
-    // ----------------------------------------------------
-    // Firebase Configuration
-    // ----------------------------------------------------
-    const firebaseConfig = {
-      apiKey: "AIzaSyCwvoRRmlGk6C-S2PbsZbkm2P5B2E98Hks",
-      authDomain: "trip-expense-calculator-9261b.firebaseapp.com",
-      projectId: "trip-expense-calculator-9261b",
-      storageBucket: "trip-expense-calculator-9261b.firebasestorage.app",
-      messagingSenderId: "211000271288",
-      appId: "1:211000271288:web:e76cc31d65834a09db6f4d",
-      measurementId: "G-N4DE2DLX4W"
-    };
-
-    if (!firebase.apps.length) {
-      firebase.initializeApp(firebaseConfig);
-    }
-    const auth = firebase.auth();
-    const db = firebase.firestore();
-    const storage = firebase.storage ? firebase.storage() : null;
-
-    const { useState, useMemo, useEffect, useRef } = React;
-
-    const Icon = ({ name, className = "w-4 h-4" }) => {
-      useEffect(() => {
-        if (window.lucide) window.lucide.createIcons();
-      }, [name]);
-      return (
-        <span key={name} className="inline-flex items-center justify-center shrink-0">
-          <i data-lucide={name} className={className}></i>
-        </span>
-      );
-    };
-
-    const POPULAR_CATEGORIES = [
-      { label: "🍲 ค่าอาหาร", title: "ค่าอาหาร" },
-      { label: "🍻 ค่าเครื่องดื่ม/เบียร์", title: "ค่าเครื่องดื่ม/เบียร์" },
-      { label: "🚗 ค่าน้ำมัน/ค่ารถ", title: "ค่าน้ำมัน/ค่าเดินทาง" },
-      { label: "🏨 ค่าที่พัก/โรงแรม", title: "ค่าที่พัก" },
-      { label: "☕ ค่าคาเฟ่/ของว่าง", title: "ค่ากาแฟ/ขนม" },
-      { label: "🎫 ค่าบัตร/ค่าเข้าชม", title: "ค่าตั๋ว/กิจกรรม" },
-      { label: "🛒 ของใช้ส่วนกลาง", title: "ของใช้ส่วนกลาง" }
-    ];
-
-    const getTodayDateString = () => {
-      const today = new Date();
-      const yyyy = today.getFullYear();
-      const mm = String(today.getMonth() + 1).padStart(2, '0');
-      const dd = String(today.getDate()).padStart(2, '0');
-      return `${yyyy}-${mm}-${dd}`;
-    };
-
-    const compressImageFile = (file, maxWidth = 900, quality = 0.65) => {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = (event) => {
-          const img = new Image();
-          img.src = event.target.result;
-          img.onload = () => {
-            const canvas = document.createElement('canvas');
-            let width = img.width;
-            let height = img.height;
-            if (width > maxWidth) {
-              height = Math.round((height * maxWidth) / width);
-              width = maxWidth;
-            }
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0, width, height);
-            resolve(canvas.toDataURL('image/jpeg', quality));
-          };
-          img.onerror = reject;
-        };
-        reader.onerror = reject;
-      });
-    };
-
-    function App() {
-      // Theme State
-      const [isDarkMode, setIsDarkMode] = useState(() => {
-        const savedTheme = localStorage.getItem('trip_theme');
-        return savedTheme ? savedTheme === 'dark' : true;
-      });
-
-      useEffect(() => {
-        if (isDarkMode) {
-          document.documentElement.classList.add('dark');
-          localStorage.setItem('trip_theme', 'dark');
-        } else {
-          document.documentElement.classList.remove('dark');
-          localStorage.setItem('trip_theme', 'light');
-        }
-      }, [isDarkMode]);
-
-      // User Auth State
-      const [user, setUser] = useState(null);
-      const [loading, setLoading] = useState(true);
-
-      const getDefaultTripName = () => {
-        const today = new Date();
-        return `ทริปวันที่ ${today.toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' })}`;
-      };
-
-      const [currentTripId, setCurrentTripId] = useState(null);
-      const [tripName, setTripName] = useState(getDefaultTripName());
-
-      // Data States
-      const [friends, setFriends] = useState([]);
-      const [expenses, setExpenses] = useState([]);
-      const [history, setHistory] = useState([]);
-
-      // Saved Friends (สมุดรายชื่อเพื่อนถาวร)
-      const [savedFriends, setSavedFriends] = useState(() => {
-        try {
-          const local = localStorage.getItem('trip_saved_friends');
-          return local ? JSON.parse(local) : [];
-        } catch {
-          return [];
-        }
-      });
-      const [showSavedFriendsModal, setShowSavedFriendsModal] = useState(false);
-      const [manageFriendName, setManageFriendName] = useState('');
-      const [manageFriendPP, setManageFriendPP] = useState('');
-      const [editingSavedFriendId, setEditingSavedFriendId] = useState(null);
-
-      // Inputs state: Add Friend + Autocomplete Dropdown
-      const [newFriendName, setNewFriendName] = useState('');
-      const [newFriendPromptPay, setNewFriendPromptPay] = useState('');
-      const [newFriendHeadcount, setNewFriendHeadcount] = useState(1);
-      const [showFriendDropdown, setShowFriendDropdown] = useState(false);
-      const dropdownWrapperRef = useRef(null);
-
-      // Inline Edit State for Friends in Current Trip
-      const [editingTripFriendId, setEditingTripFriendId] = useState(null);
-      const [editTripFriendName, setEditTripFriendName] = useState('');
-      const [editTripFriendPP, setEditTripFriendPP] = useState('');
-      const [editTripFriendHeadcount, setEditTripFriendHeadcount] = useState(1);
-
-      // Inputs state: Expenses & Edit Mode
-      const [editingExpenseId, setEditingExpenseId] = useState(null);
-      const [expenseDate, setExpenseDate] = useState(getTodayDateString());
-      const [expenseTitle, setExpenseTitle] = useState('');
-      const [expenseAmount, setExpenseAmount] = useState('');
-      const [expensePayerId, setExpensePayerId] = useState('');
-      const [selectedParticipants, setSelectedParticipants] = useState([]);
-      
-      // Receipt States
-      const [receiptFile, setReceiptFile] = useState(null);
-      const [receiptPreview, setReceiptPreview] = useState(null);
-      const [uploading, setUploading] = useState(false);
-      const [viewingReceiptUrl, setViewingReceiptUrl] = useState(null);
-      const fileInputRef = useRef(null);
-      const expenseSectionRef = useRef(null);
-      
-      // UI Modals & Feedback
-      const [copied, setCopied] = useState(false);
-      const [showResetModal, setShowResetModal] = useState(false);
-      const [showHistoryModal, setShowHistoryModal] = useState(false);
-      const [saving, setSaving] = useState(false);
-      const [alertMsg, setAlertMsg] = useState(null);
-
-      const showAlert = (message, type = 'info') => {
-        setAlertMsg({ message, type });
-        setTimeout(() => setAlertMsg(null), 4000);
-      };
-
-      // ปิด Dropdown รายชื่อเมื่อคลิกพื้นที่อื่น
-      useEffect(() => {
-        const handleClickOutside = (event) => {
-          if (dropdownWrapperRef.current && !dropdownWrapperRef.current.contains(event.target)) {
-            setShowFriendDropdown(false);
-          }
-        };
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
-      }, []);
-
-      // Auth Listener & Fetch Cloud Data
-      useEffect(() => {
-        let unsubscribeHistory = null;
-        let unsubscribeUser = null;
-
-        const unsubscribeAuth = auth.onAuthStateChanged((currentUser) => {
-          setUser(currentUser);
-          setLoading(false);
-
-          if (unsubscribeHistory) unsubscribeHistory();
-          if (unsubscribeUser) unsubscribeUser();
-
-          if (currentUser) {
-            const historyRef = db.collection("users").doc(currentUser.uid).collection("trips");
-            unsubscribeHistory = historyRef.orderBy("createdAt", "desc").onSnapshot((snapshot) => {
-              setHistory(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-            });
-
-            unsubscribeUser = db.collection("users").doc(currentUser.uid).onSnapshot(doc => {
-              if (doc.exists && doc.data().savedFriends) {
-                setSavedFriends(doc.data().savedFriends);
-                localStorage.setItem('trip_saved_friends', JSON.stringify(doc.data().savedFriends));
-              }
-            });
-          } else {
-            setHistory([]);
-            const local = localStorage.getItem('trip_saved_friends');
-            if (local) setSavedFriends(JSON.parse(local));
-          }
-        });
-
-        return () => {
-          if (unsubscribeHistory) unsubscribeHistory();
-          if (unsubscribeUser) unsubscribeUser();
-          unsubscribeAuth();
-        };
-      }, []);
-
-      const handleGoogleLogin = async () => {
-        const provider = new firebase.auth.GoogleAuthProvider();
-        provider.setCustomParameters({ prompt: 'select_account' });
-        try {
-          await auth.signInWithPopup(provider);
-          showAlert("เข้าสู่ระบบสำเร็จ!", "success");
-        } catch (error) {
-          showAlert(`เข้าสู่ระบบไม่สำเร็จ: ${error.message}`, "error");
-        }
-      };
-
-      const handleLogout = async () => {
-        try {
-          await auth.signOut();
-          showAlert("ออกจากระบบเรียบร้อยแล้ว", "info");
-        } catch (err) {
-          showAlert("ออกจากระบบไม่สำเร็จ: " + err.message, "error");
-        }
-      };
-
-      useEffect(() => {
-        if ((!expensePayerId || !friends.some(f => f.id === expensePayerId)) && friends.length > 0) {
-          setExpensePayerId(friends[0].id);
-        } else if (friends.length === 0) {
-          setExpensePayerId('');
-        }
-      }, [friends, expensePayerId]);
-
-      // -----------------------------------------------------
-      // บันทึก / อัปเดต สมุดรายชื่อถาวร (Sync LocalStorage & Cloud)
-      // -----------------------------------------------------
-      const persistSavedFriends = async (updatedList) => {
-        setSavedFriends(updatedList);
-        localStorage.setItem('trip_saved_friends', JSON.stringify(updatedList));
-        if (user) {
-          try {
-            await db.collection("users").doc(user.uid).set({ savedFriends: updatedList }, { merge: true });
-          } catch (err) {
-            console.error("Sync savedFriends error:", err);
-          }
-        }
-      };
-
-      const upsertSavedFriend = (name, promptPay, previousName = null) => {
-        const trimmedName = name.trim();
-        const trimmedPP = (promptPay || '').trim();
-        if (!trimmedName) return;
-
-        let updatedList = [...savedFriends];
-        const matchKey = (previousName || trimmedName).toLowerCase();
-        const existingIndex = updatedList.findIndex(f => f.name.toLowerCase() === matchKey);
-
-        if (existingIndex !== -1) {
-          updatedList[existingIndex] = {
-            ...updatedList[existingIndex],
-            name: trimmedName,
-            promptPay: trimmedPP || updatedList[existingIndex].promptPay || ''
-          };
-        } else {
-          updatedList.push({
-            id: 'sf_' + Date.now().toString() + Math.random().toString(36).slice(2, 5),
-            name: trimmedName,
-            promptPay: trimmedPP
-          });
-        }
-        persistSavedFriends(updatedList);
-      };
-
-      const handleAddOrUpdateSavedFriend = async (e) => {
-        e.preventDefault();
-        if (!manageFriendName.trim()) return;
-        
-        let newList;
-        if (editingSavedFriendId) {
-          newList = savedFriends.map(f => f.id === editingSavedFriendId ? { ...f, name: manageFriendName.trim(), promptPay: manageFriendPP.trim() } : f);
-          showAlert(`อัปเดตข้อมูล "${manageFriendName.trim()}" ในสมุดแล้ว`, "success");
-        } else {
-          newList = [...savedFriends, { id: 'sf_' + Date.now().toString(), name: manageFriendName.trim(), promptPay: manageFriendPP.trim() }];
-          showAlert(`เพิ่ม "${manageFriendName.trim()}" ลงสมุดประจำแล้ว`, "success");
-        }
-        
-        await persistSavedFriends(newList);
-        setManageFriendName('');
-        setManageFriendPP('');
-        setEditingSavedFriendId(null);
-      };
-
-      const handleDeleteSavedFriend = (id) => {
-        if (window.confirm("ต้องการลบเพื่อนคนนี้ออกจากสมุดรายชื่อประจำหรือไม่?")) {
-          const newList = savedFriends.filter(f => f.id !== id);
-          persistSavedFriends(newList);
-        }
-      };
-
-      // -----------------------------------------------------
-      // เพิ่ม / เลือก / แก้ไข เพื่อนในทริปปัจจุบัน
-      // -----------------------------------------------------
-      const handleAddFriendToTrip = (name, promptPay, headcount, shouldRemember = false) => {
-        const trimmedName = name.trim();
-        if (!trimmedName) return;
-
-        const newFriend = {
-          id: 'friend_' + Date.now().toString() + Math.random().toString(36).slice(2, 5),
-          name: trimmedName,
-          promptPay: (promptPay || '').trim(),
-          headcount: Math.max(1, parseInt(headcount) || 1),
-        };
-
-        setFriends(prev => [...prev, newFriend]);
-        if (!editingExpenseId) {
-          setSelectedParticipants(prev => [...prev, newFriend.id]);
-        }
-        if (!expensePayerId) {
-          setExpensePayerId(newFriend.id);
-        }
-
-        if (shouldRemember) {
-          upsertSavedFriend(trimmedName, promptPay);
-        }
-      };
-
-      const handleAddFriendSubmit = (e) => {
-        e.preventDefault();
-        if (!newFriendName.trim()) return;
-        handleAddFriendToTrip(newFriendName, newFriendPromptPay, newFriendHeadcount, true);
-        setNewFriendName('');
-        setNewFriendPromptPay('');
-        setNewFriendHeadcount(1);
-        setShowFriendDropdown(false);
-      };
-
-      const handleAddAllSavedFriendsToTrip = () => {
-        const notAddedYet = savedFriends.filter(sf => !friends.some(f => f.name.toLowerCase() === sf.name.toLowerCase()));
-        if (notAddedYet.length === 0) return;
-
-        const newFriendsBatch = notAddedYet.map((sf, idx) => ({
-          id: 'friend_' + (Date.now() + idx).toString(),
-          name: sf.name,
-          promptPay: sf.promptPay || '',
-          headcount: 1
-        }));
-
-        setFriends(prev => [...prev, ...newFriendsBatch]);
-        if (!editingExpenseId) {
-          setSelectedParticipants(prev => [...prev, ...newFriendsBatch.map(f => f.id)]);
-        }
-        if (!expensePayerId && newFriendsBatch.length > 0) {
-          setExpensePayerId(newFriendsBatch[0].id);
-        }
-        showAlert(`เพิ่มเพื่อนจากสมุดเข้าทริป ${newFriendsBatch.length} คนเรียบร้อย!`, "success");
-      };
-
-      const handleSelectFriendFromDropdown = (sf) => {
-        setNewFriendName(sf.name);
-        setNewFriendPromptPay(sf.promptPay || '');
-        setShowFriendDropdown(false);
-      };
-
-      const handleStartEditTripFriend = (friend) => {
-        setEditingTripFriendId(friend.id);
-        setEditTripFriendName(friend.name);
-        setEditTripFriendPP(friend.promptPay || '');
-        setEditTripFriendHeadcount(friend.headcount || 1);
-      };
-
-      const handleSaveEditTripFriend = (friendId) => {
-        if (!editTripFriendName.trim()) {
-          showAlert("กรุณาระบุชื่อเพื่อน", "error");
-          return;
-        }
-        const oldFriend = friends.find(f => f.id === friendId);
-        const updatedName = editTripFriendName.trim();
-        const updatedPP = editTripFriendPP.trim();
-        const updatedHeadcount = Math.max(1, parseInt(editTripFriendHeadcount) || 1);
-
-        setFriends(prev => prev.map(f => f.id === friendId ? {
-          ...f,
-          name: updatedName,
-          promptPay: updatedPP,
-          headcount: updatedHeadcount
-        } : f));
-
-        upsertSavedFriend(updatedName, updatedPP, oldFriend ? oldFriend.name : null);
-        setEditingTripFriendId(null);
-        showAlert(`บันทึกข้อมูลของ "${updatedName}" เรียบร้อยแล้ว`, "success");
-      };
-
-      const handleDeleteFriend = (id) => {
-        if (editingTripFriendId === id) setEditingTripFriendId(null);
-        setFriends(friends.filter(f => f.id !== id));
-        setExpenses(expenses.map(exp => ({
-          ...exp,
-          participantIds: exp.participantIds.filter(pId => pId !== id),
-        })).filter(exp => exp.payerId !== id));
-        setSelectedParticipants(selectedParticipants.filter(pId => pId !== id));
-      };
-
-      const handleUpdateHeadcount = (id, delta) => {
-        setFriends(friends.map(f => f.id === id ? { ...f, headcount: Math.max(1, f.headcount + delta) } : f));
-      };
-
-      const handleToggleParticipant = (friendId) => {
-        setSelectedParticipants(prev => prev.includes(friendId) ? prev.filter(id => id !== friendId) : [...prev, friendId]);
-      };
-
-      const handleSelectAllParticipants = () => {
-        setSelectedParticipants(selectedParticipants.length === friends.length ? [] : friends.map(f => f.id));
-      };
-
-      const filteredSavedFriends = useMemo(() => {
-        const keyword = newFriendName.trim().toLowerCase();
-        if (!keyword) return savedFriends;
-        return savedFriends.filter(sf =>
-          sf.name.toLowerCase().includes(keyword) ||
-          (sf.promptPay && sf.promptPay.includes(keyword))
-        );
-      }, [savedFriends, newFriendName]);
-
-      // ระบบจัดการรูปใบเสร็จ
-      const handleReceiptFileChange = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        if (!file.type.startsWith('image/')) return showAlert("กรุณาเลือกไฟล์รูปภาพเท่านั้น", "error");
-
-        try {
-          setReceiptFile(file);
-          const compressedDataUrl = await compressImageFile(file);
-          setReceiptPreview(compressedDataUrl);
-        } catch (err) {
-          showAlert("ไม่สามารถอ่านไฟล์รูปภาพนี้ได้", "error");
-        }
-      };
-
-      const handleClearReceipt = () => {
-        setReceiptFile(null);
-        setReceiptPreview(null);
-        if (fileInputRef.current) fileInputRef.current.value = "";
-      };
-
-      const handleStartEditExpense = (exp) => {
-        setEditingExpenseId(exp.id);
-        setExpenseDate(exp.date || getTodayDateString());
-        setExpenseTitle(exp.title);
-        setExpenseAmount(exp.amount.toString());
-        setExpensePayerId(exp.payerId);
-        setSelectedParticipants(exp.participantIds || []);
-        setReceiptFile(null);
-        setReceiptPreview(exp.receiptUrl || null);
-        if (fileInputRef.current) fileInputRef.current.value = "";
-        if (expenseSectionRef.current) expenseSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      };
-
-      const handleCancelEditExpense = () => {
-        setEditingExpenseId(null);
-        setExpenseDate(getTodayDateString());
-        setExpenseTitle('');
-        setExpenseAmount('');
-        if (friends.length > 0) setExpensePayerId(friends[0].id);
-        setSelectedParticipants(friends.map(f => f.id));
-        handleClearReceipt();
-      };
-
-      // บันทึกรายการค่าใช้จ่าย
-      const handleSaveExpenseForm = async (e) => {
-        e.preventDefault();
-        const numAmount = parseFloat(expenseAmount);
-        if (!expenseTitle.trim() || isNaN(numAmount) || numAmount <= 0 || !expensePayerId || selectedParticipants.length === 0) {
-          return showAlert("กรุณากรอกข้อมูลรายการ จำนวนเงิน และเลือกคนหารให้ครบถ้วน", "error");
-        }
-
-        setUploading(true);
-        let finalReceiptUrl = receiptPreview || null;
-
-        if (receiptFile && user && storage) {
-          try {
-            const fileName = `receipt_${Date.now()}.jpg`;
-            const fileRef = storage.ref().child(`receipts/${user.uid}/${fileName}`);
-            const uploadTask = fileRef.putString(receiptPreview, 'data_url').then(() => fileRef.getDownloadURL());
-            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Storage timeout")), 3500));
-            finalReceiptUrl = await Promise.race([uploadTask, timeoutPromise]);
-          } catch (err) {
-            finalReceiptUrl = receiptPreview;
-          }
-        }
-
-        const expenseData = {
-          date: expenseDate || getTodayDateString(),
-          title: expenseTitle.trim(),
-          amount: numAmount,
-          payerId: expensePayerId,
-          participantIds: [...selectedParticipants],
-          receiptUrl: finalReceiptUrl
-        };
-
-        if (editingExpenseId) {
-          setExpenses(prev => prev.map(exp => exp.id === editingExpenseId ? { ...exp, ...expenseData } : exp));
-          showAlert(`แก้ไขรายการ "${expenseTitle.trim()}" เรียบร้อยแล้ว!`, "success");
-          setEditingExpenseId(null);
-        } else {
-          setExpenses(prev => [...prev, { id: 'exp_' + Date.now().toString(), createdAtMs: Date.now(), ...expenseData }]);
-          showAlert(`เพิ่มรายการ "${expenseTitle.trim()}" เรียบร้อย!`, "success");
-        }
-
-        setExpenseTitle('');
-        setExpenseAmount('');
-        handleClearReceipt();
-        setSelectedParticipants(friends.map(f => f.id));
-        setUploading(false);
-      };
-
-      const handleDeleteExpense = (id) => {
-        if (editingExpenseId === id) handleCancelEditExpense();
-        setExpenses(expenses.filter(e => e.id !== id));
-      };
-
-      const sortedExpenses = useMemo(() => {
-        return [...expenses].sort((a, b) => {
-          const dateA = a.date || '';
-          const dateB = b.date || '';
-          if (dateA !== dateB) return dateA.localeCompare(dateB);
-          return (a.createdAtMs || 0) - (b.createdAtMs || 0);
-        });
-      }, [expenses]);
-
-      // คำนวณสรุปยอด
-      const calculations = useMemo(() => {
-        const friendTotals = {};
-        friends.forEach(f => {
-          friendTotals[f.id] = { id: f.id, name: f.name, promptPay: f.promptPay || '', headcount: f.headcount, paid: 0, shouldPay: 0, netBalance: 0 };
-        });
-
-        let totalExpenseAmount = 0;
-
-        expenses.forEach(exp => {
-          totalExpenseAmount += exp.amount;
-          if (friendTotals[exp.payerId]) friendTotals[exp.payerId].paid += exp.amount;
-
-          let totalHeadcount = 0;
-          exp.participantIds.forEach(pId => { if (friendTotals[pId]) totalHeadcount += friendTotals[pId].headcount; });
-
-          if (totalHeadcount > 0) {
-            const costPerHead = exp.amount / totalHeadcount;
-            exp.participantIds.forEach(pId => { if (friendTotals[pId]) friendTotals[pId].shouldPay += costPerHead * friendTotals[pId].headcount; });
-          }
-        });
-
-        Object.values(friendTotals).forEach(f => { f.netBalance = f.paid - f.shouldPay; });
-
-        const debtors = [];
-        const creditors = [];
-
-        Object.values(friendTotals).forEach(f => {
-          if (f.netBalance < -0.01) debtors.push({ ...f, amountOwed: Math.abs(f.netBalance) });
-          else if (f.netBalance > 0.01) creditors.push({ ...f, amountToReceive: f.netBalance });
-        });
-
-        debtors.sort((a, b) => b.amountOwed - a.amountOwed);
-        creditors.sort((a, b) => b.amountToReceive - a.amountToReceive);
-
-        const settlements = [];
-        let i = 0, j = 0;
-
-        while (i < debtors.length && j < creditors.length) {
-          const debtor = debtors[i];
-          const creditor = creditors[j];
-          const settlementAmount = Math.min(debtor.amountOwed, creditor.amountToReceive);
-
-          if (settlementAmount > 0.01) {
-            settlements.push({
-              fromId: debtor.id, fromName: debtor.name, toId: creditor.id, toName: creditor.name, toPromptPay: creditor.promptPay, amount: settlementAmount,
-            });
-          }
-
-          debtor.amountOwed -= settlementAmount;
-          creditor.amountToReceive -= settlementAmount;
-
-          if (debtor.amountOwed < 0.01) i++;
-          if (creditor.amountToReceive < 0.01) j++;
-        }
-
-        return { friendTotals: Object.values(friendTotals), settlements, totalExpenseAmount };
-      }, [friends, expenses]);
-
-      const formatThaiDate = (dateStr) => {
-        if (!dateStr) return 'ไม่ระบุวันที่';
-        const parts = dateStr.split('-');
-        if (parts.length !== 3) return dateStr;
-        const dateObj = new Date(parts[0], parts[1] - 1, parts[2]);
-        return dateObj.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
-      };
-
-      // สรุปข้อความสำหรับส่งลง LINE (รูปแบบกระชับ ไม่มีเครื่องหมาย *)
-      const generateSummaryText = () => {
-        const finalTripName = tripName.trim() || getDefaultTripName();
-        let summaryText = `🏕️ สรุปค่าใช้จ่าย: ${finalTripName}\n`;
-        summaryText += `💰 ยอดรวมทั้งหมด: ${calculations.totalExpenseAmount.toLocaleString()} บาท\n`;
-        summaryText += `━━━━━━━━━━━━━━\n\n`;
-
-        summaryText += `👥 รายละเอียดต่อคน/กลุ่ม\n`;
-        calculations.friendTotals.forEach(f => {
-          summaryText += `- ${f.name} (${f.headcount} คน): จ่ายแล้ว ${f.paid.toLocaleString()} บ.\n`;
-        });
-
-        summaryText += `\n💸 สรุปการเคลียร์ยอด\n`;
-        if (calculations.settlements.length === 0) {
-          summaryText += `✨ เคลียร์ยอดครบแล้ว ไม่มีใครต้องโอนเพิ่ม!\n`;
-        } else {
-          calculations.settlements.forEach(s => {
-            summaryText += `• ${s.fromName} โอนให้ ${s.toName} : ${s.amount.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท\n`;
-            if (s.toPromptPay) {
-              summaryText += `   💳 พร้อมเพย์: ${s.toPromptPay}\n`;
-            }
-          });
-        }
-        return summaryText.trim();
-      };
-
-      const handleSaveToCloud = async (saveAsNew = false) => {
-        if (!user) return showAlert("กรุณาเข้าสู่ระบบด้วย Google ก่อนบันทึกทริป", "error");
-        if (friends.length === 0 && expenses.length === 0) return showAlert("ยังไม่มีข้อมูลเพื่อนหรือค่าใช้จ่ายให้บันทึก", "error");
-
-        setSaving(true);
-        const finalTripName = tripName.trim() || getDefaultTripName();
-        const tripData = {
-          tripName: finalTripName, date: new Date().toLocaleString('th-TH'), updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-          totalAmount: calculations.totalExpenseAmount, summaryText: generateSummaryText(),
-          friendsCount: friends.length, expensesCount: expenses.length, friendsData: friends, expensesData: expenses
-        };
-
-        try {
-          const userTripsRef = db.collection("users").doc(user.uid).collection("trips");
-          if (currentTripId && !saveAsNew) {
-            await userTripsRef.doc(currentTripId).set(tripData, { merge: true });
-            showAlert(`☁️ อัปเดต "${finalTripName}" สำเร็จ!`, "success");
-          } else {
-            tripData.createdAt = firebase.firestore.FieldValue.serverTimestamp();
-            const newDoc = await userTripsRef.add(tripData);
-            setCurrentTripId(newDoc.id);
-            showAlert(`☁️ บันทึก "${finalTripName}" เป็นทริปใหม่เรียบร้อย!`, "success");
-          }
-        } catch (err) {
-          showAlert("เกิดข้อผิดพลาดในการบันทึก: " + err.message, "error");
-        } finally {
-          setSaving(false);
-        }
-      };
-
-      const handleLoadTripForEdit = (record) => {
-        const loadedFriends = record.friendsData || [];
-        setTripName(record.tripName || getDefaultTripName());
-        setFriends(loadedFriends);
-        setExpenses(record.expensesData || []);
-        setSelectedParticipants(loadedFriends.map(f => f.id));
-        setEditingExpenseId(null);
-        setEditingTripFriendId(null);
-        handleClearReceipt();
-        setCurrentTripId(record.id);
-        setShowHistoryModal(false);
-        showAlert(`📥 โหลดข้อมูล "${record.tripName || 'ทริป'}" เพื่อแก้ไขเรียบร้อย`, "info");
-      };
-
-      const handleDeleteHistoryRecord = async (tripId, e) => {
-        e.stopPropagation();
-        if (!user) return;
-        if (window.confirm("คุณต้องการลบประวัตินี้หรือไม่?")) {
-          try {
-            await db.collection("users").doc(user.uid).collection("trips").doc(tripId).delete();
-            if (currentTripId === tripId) setCurrentTripId(null);
-            showAlert("ลบประวัติเรียบร้อยแล้ว", "info");
-          } catch (err) {
-            showAlert("ไม่สามารถลบได้: " + err.message, "error");
-          }
-        }
-      };
-
-      const handleCopySummary = () => {
-        const textarea = document.createElement("textarea");
-        textarea.value = generateSummaryText();
-        textarea.style.position = "fixed";
-        textarea.style.opacity = "0";
-        document.body.appendChild(textarea);
-        textarea.select();
-        try {
-          document.execCommand("copy");
-          setCopied(true);
-          setTimeout(() => setCopied(false), 2000);
-          showAlert("คัดลอกสรุปข้อความแล้ว นำไปส่งลง LINE ได้เลย!", "success");
-        } catch (err) {
-          showAlert("คัดลอกไม่สำเร็จ โปรดลองอีกครั้ง", "error");
-        } finally {
-          document.body.removeChild(textarea);
-        }
-      };
-
-      const confirmReset = () => {
-        setFriends([]); setExpenses([]); setSelectedParticipants([]); setEditingExpenseId(null); setEditingTripFriendId(null);
-        handleClearReceipt(); setCurrentTripId(null); setTripName(getDefaultTripName());
-        setShowResetModal(false); showAlert("ล้างข้อมูลปัจจุบันเรียบร้อยแล้ว", "info");
-      };
-
-      const unaddedSavedCount = savedFriends.filter(sf => !friends.some(f => f.name.toLowerCase() === sf.name.toLowerCase())).length;
-
-      return (
-        <div className="min-h-screen pb-20">
-          {/* Toast Notification */}
-          {alertMsg && (
-            <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-xl shadow-2xl flex items-center gap-2 text-sm border animate-bounce ${
-              alertMsg.type === 'error' ? 'bg-rose-600 border-rose-400 text-white dark:bg-rose-900/90 dark:border-rose-500 dark:text-rose-100' :
-              alertMsg.type === 'success' ? 'bg-emerald-600 border-emerald-400 text-white dark:bg-emerald-900/90 dark:border-emerald-500 dark:text-emerald-100' :
-              'bg-slate-800 border-slate-600 text-slate-100'
-            }`}>
-              <Icon name={alertMsg.type === 'error' ? 'alert-circle' : alertMsg.type === 'success' ? 'check-circle' : 'info'} className="w-5 h-5" />
-              <span>{alertMsg.message}</span>
-            </div>
-          )}
-
-          {/* Header */}
-          <header className="bg-white/95 dark:bg-slate-800/95 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-40 backdrop-blur-md transition-colors">
-            <div className="max-w-5xl mx-auto px-4 py-3.5 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-emerald-500/15 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 rounded-xl border border-emerald-500/30">
-                  <Icon name="pie-chart" className="w-6 h-6" />
+<body>
+  <div class="app-shell">
+    <!-- HERO HEADER + OVERLAPPING QUICK ACTIONS -->
+    <header class="hero-wrapper">
+      <div class="hero-bg" aria-hidden="true">
+        <div class="hero-glow"></div>
+        <div class="hero-circle hero-circle-1"></div>
+        <div class="hero-circle hero-circle-2"></div>
+      </div>
+
+      <div class="hero-content">
+        <!-- Top Bar -->
+        <div class="hero-topbar">
+          <div class="brand-badge" aria-hidden="true">🏕️</div>
+          <h1 class="brand-title">หารค่าทริป</h1>
+
+          <button type="button" id="btnToggleTheme" class="hero-icon-btn" title="สลับโหมดสี" aria-label="สลับโหมดสี">
+            <span class="material-symbols-rounded" id="themeIcon">dark_mode</span>
+          </button>
+
+          <!-- Profile Area -->
+          <div class="profile-container" id="profileContainer">
+            <button type="button" id="btnSignIn" class="pill-signin-btn">
+              <span class="material-symbols-rounded">login</span>
+              <span>เข้าสู่ระบบ</span>
+            </button>
+
+            <div id="userProfileWrap" class="user-profile-wrap hidden">
+              <button type="button" id="btnProfileAvatar" class="profile-avatar-btn" aria-label="โปรไฟล์ผู้ใช้">
+                <img id="userAvatarImg" class="profile-avatar-img hidden" alt="โปรไฟล์" referrerpolicy="no-referrer" />
+                <div id="userAvatarFallback" class="avatar-circle avatar-sm"></div>
+              </button>
+              <div id="profileDropdown" class="profile-dropdown hidden">
+                <div class="profile-dropdown-info">
+                  <div id="userDisplayName" class="profile-name">ผู้ใช้</div>
+                  <div id="userEmail" class="profile-email"></div>
                 </div>
-                <div>
-                  <h1 className="text-xl font-bold bg-gradient-to-r from-emerald-600 to-teal-500 dark:from-emerald-400 dark:to-teal-300 bg-clip-text text-transparent flex items-center gap-2">
-                    หารค่าใช้จ่ายทริป
-                  </h1>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">จดจำเพื่อน & พร้อมเพย์ เลือกจากลิสต์ได้ทันที</p>
-                </div>
-              </div>
-
-              {/* Theme Toggle & Login */}
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setShowSavedFriendsModal(true)}
-                  className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-500/15 dark:hover:bg-indigo-500/25 text-indigo-600 dark:text-indigo-300 transition-colors flex items-center gap-1.5 text-xs font-medium"
-                  title="จัดการสมุดรายชื่อเพื่อนและพร้อมเพย์"
-                >
-                  <Icon name="book-user" className="w-4 h-4" />
-                  <span className="hidden sm:inline">สมุดเพื่อน ({savedFriends.length})</span>
+                <div class="dropdown-divider"></div>
+                <button type="button" id="btnSignOut" class="dropdown-item">
+                  <span class="material-symbols-rounded">logout</span>
+                  <span>ออกจากระบบ</span>
                 </button>
-
-                <button
-                  onClick={() => setIsDarkMode(!isDarkMode)}
-                  className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700/70 dark:hover:bg-slate-700 text-slate-700 dark:text-amber-300 transition-colors flex items-center gap-1.5 text-xs font-medium"
-                  title={isDarkMode ? "สลับเป็นโหมดกลางวัน" : "สลับเป็นโหมดกลางคืน"}
-                >
-                  <Icon name={isDarkMode ? "sun" : "moon"} className="w-4 h-4" />
-                </button>
-
-                {loading ? (
-                  <span className="text-xs text-slate-400">กำลังโหลด...</span>
-                ) : user ? (
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => setShowHistoryModal(true)} className="bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 px-3 py-1.5 rounded-xl flex items-center gap-1.5 text-xs font-medium border border-slate-200 dark:border-slate-600 shadow-sm">
-                      <Icon name="folder-clock" className="w-4 h-4 text-amber-500 dark:text-amber-400" /> <span className="hidden md:inline">ประวัติ ({history.length})</span>
-                    </button>
-                    <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-1 pr-2">
-                      <img src={user.photoURL || 'https://via.placeholder.com/32'} alt="User" className="w-6 h-6 rounded-full border border-emerald-400 object-cover" />
-                      <button onClick={handleLogout} className="text-xs text-slate-500 dark:text-slate-400 hover:text-rose-500" title="ออกจากระบบ"><Icon name="log-out" className="w-3.5 h-3.5" /></button>
-                    </div>
-                  </div>
-                ) : (
-                  <button onClick={handleGoogleLogin} className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-2 rounded-xl flex items-center gap-2 shadow-lg"><Icon name="log-in" className="w-4 h-4" /> เข้าระบบ</button>
-                )}
-
-                <button onClick={() => setShowResetModal(true)} className="text-slate-500 dark:text-slate-400 hover:text-rose-500 p-2 rounded-xl hover:bg-slate-200/60 dark:hover:bg-slate-700/50" title="เริ่มทริปใหม่"><Icon name="rotate-ccw" className="w-4 h-4" /></button>
               </div>
             </div>
-          </header>
-
-          <main className="max-w-5xl mx-auto px-4 pt-6 space-y-6">
-            {/* Trip Name Banner */}
-            <div className="bg-white dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-4 shadow-md flex flex-col sm:flex-row justify-between gap-3">
-              <div className="flex-1 w-full">
-                <label className="block text-xs font-medium text-amber-600 dark:text-amber-300 mb-1 flex items-center gap-1.5"><Icon name="map-pin" className="w-3.5 h-3.5" /> ชื่อทริป</label>
-                <div className="flex items-center gap-2">
-                  <input type="text" placeholder={getDefaultTripName()} value={tripName} onChange={(e) => setTripName(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-amber-500 rounded-xl px-3.5 py-2 text-sm font-semibold outline-none" />
-                  <button type="button" onClick={() => setTripName(getDefaultTripName())} className="shrink-0 px-2.5 py-2 text-xs bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 rounded-xl text-slate-700 dark:text-slate-300">วันที่วันนี้</button>
-                </div>
-              </div>
-              {currentTripId && <div className="text-xs bg-amber-500/10 border border-amber-500/30 rounded-xl p-2 text-amber-600 dark:text-amber-300 shrink-0 self-end">กำลังแก้ไขทริปเดิม</div>}
-            </div>
-
-            {/* Step 1: Manage Friends */}
-            <section className="bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-5 shadow-md">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-indigo-500/15 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-sm">1</div>
-                  <h2 className="text-lg font-semibold flex items-center gap-2"><Icon name="users" className="w-5 h-5 text-indigo-500" /> เพิ่มเพื่อนร่วมทริป & พร้อมเพย์</h2>
-                </div>
-                <span className="text-xs bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-2.5 py-1 rounded-full font-medium">รวม {friends.reduce((acc, f) => acc + f.headcount, 0)} คน</span>
-              </div>
-
-              <form onSubmit={handleAddFriendSubmit} className="grid grid-cols-1 sm:grid-cols-12 gap-3">
-                <div className="sm:col-span-4 relative" ref={dropdownWrapperRef}>
-                  <div className="relative">
-                    <input 
-                      type="text" 
-                      placeholder="พิมพ์ชื่อ หรือคลิกเลือกจากลิสต์..." 
-                      value={newFriendName} 
-                      onFocus={() => savedFriends.length > 0 && setShowFriendDropdown(true)}
-                      onChange={(e) => {
-                        setNewFriendName(e.target.value);
-                        if (savedFriends.length > 0) setShowFriendDropdown(true);
-                      }} 
-                      className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-indigo-500 rounded-xl pl-4 pr-8 py-2.5 text-sm outline-none" 
-                    />
-                    {savedFriends.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setShowFriendDropdown(!showFriendDropdown)}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-indigo-500"
-                        title="เลือกรายชื่อที่จดจำไว้"
-                      >
-                        <Icon name="chevron-down" className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-
-                  {showFriendDropdown && filteredSavedFriends.length > 0 && (
-                    <div className="absolute z-30 left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl max-h-56 overflow-y-auto py-1">
-                      <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 border-b border-slate-100 dark:border-slate-700/70">
-                        เลือกรายชื่อจากสมุดจดจำ
-                      </div>
-                      {filteredSavedFriends.map(sf => {
-                        const alreadyInTrip = friends.some(f => f.name.toLowerCase() === sf.name.toLowerCase());
-                        return (
-                          <button
-                            key={sf.id}
-                            type="button"
-                            onClick={() => handleSelectFriendFromDropdown(sf)}
-                            className="w-full text-left px-3 py-2 text-xs hover:bg-indigo-50 dark:hover:bg-indigo-900/40 flex items-center justify-between transition-colors"
-                          >
-                            <div>
-                              <span className="font-semibold text-slate-800 dark:text-slate-100">{sf.name}</span>
-                              {sf.promptPay && (
-                                <span className="block text-[11px] text-emerald-600 dark:text-emerald-400 font-mono">
-                                  💳 {sf.promptPay}
-                                </span>
-                              )}
-                            </div>
-                            {alreadyInTrip && (
-                              <span className="text-[10px] bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 px-1.5 py-0.5 rounded">
-                                อยู่ในทริปแล้ว
-                              </span>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-
-                <div className="sm:col-span-3">
-                  <input type="text" placeholder="พร้อมเพย์ (ระบบจำให้อัตโนมัติ)" value={newFriendPromptPay} onChange={(e) => setNewFriendPromptPay(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-indigo-500 rounded-xl px-4 py-2.5 text-sm outline-none" />
-                </div>
-                <div className="sm:col-span-3 flex items-center bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-1">
-                  <span className="text-xs text-slate-500 mr-2">จำนวนคน:</span>
-                  <button type="button" onClick={() => setNewFriendHeadcount(Math.max(1, newFriendHeadcount - 1))} className="w-7 h-7 rounded-lg bg-slate-200 dark:bg-slate-800 font-bold text-sm hover:bg-slate-300 dark:hover:bg-slate-700">-</button>
-                  <span className="flex-1 text-center font-semibold text-sm text-indigo-600 dark:text-indigo-300">{newFriendHeadcount}</span>
-                  <button type="button" onClick={() => setNewFriendHeadcount(newFriendHeadcount + 1)} className="w-7 h-7 rounded-lg bg-slate-200 dark:bg-slate-800 font-bold text-sm hover:bg-slate-300 dark:hover:bg-slate-700">+</button>
-                </div>
-                <div className="sm:col-span-2">
-                  <button type="submit" disabled={!newFriendName.trim()} className="w-full h-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium py-2.5 rounded-xl text-sm flex items-center justify-center gap-1.5 shadow-lg"><Icon name="user-plus" className="w-4 h-4" /> เพิ่ม</button>
-                </div>
-              </form>
-
-              {savedFriends.length > 0 ? (
-                <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-700/80">
-                  <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
-                    <label className="text-xs font-medium text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                      <Icon name="book-user" className="w-3.5 h-3.5 text-indigo-500"/> รายชื่อเพื่อนที่จดจำไว้ (กดเพื่อดึงเข้าทริปทันที)
-                    </label>
-                    <div className="flex items-center gap-3">
-                      {unaddedSavedCount > 0 && (
-                        <button 
-                          type="button" 
-                          onClick={handleAddAllSavedFriendsToTrip} 
-                          className="text-[11px] bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-500/25 px-2.5 py-1 rounded-lg font-medium transition-colors"
-                        >
-                          + เพิ่มเข้าทริปทั้งหมด ({unaddedSavedCount})
-                        </button>
-                      )}
-                      <button type="button" onClick={() => setShowSavedFriendsModal(true)} className="text-[11px] text-slate-500 dark:text-slate-400 hover:text-indigo-500 hover:underline flex items-center gap-1">
-                        <Icon name="settings" className="w-3 h-3"/> จัดการ / แก้ไขสมุด
-                      </button>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {savedFriends.map(sf => {
-                      const isAdded = friends.some(f => f.name.toLowerCase() === sf.name.toLowerCase());
-                      return (
-                        <button 
-                          key={sf.id} type="button" disabled={isAdded}
-                          onClick={() => handleAddFriendToTrip(sf.name, sf.promptPay || '', 1, false)}
-                          className={`px-3 py-1.5 text-xs font-medium rounded-xl transition-all border flex items-center gap-1.5 ${
-                            isAdded 
-                              ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border-slate-200 dark:border-slate-700 cursor-not-allowed' 
-                              : 'bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-500/40 hover:bg-indigo-50 dark:hover:bg-indigo-900/50 shadow-sm'
-                          }`}
-                          title={sf.promptPay ? `พร้อมเพย์: ${sf.promptPay}` : 'คลิกเพื่อเพิ่มเข้าทริป'}
-                        >
-                          <Icon name={isAdded ? "check" : "plus"} className="w-3 h-3" />
-                          <span>{sf.name}</span>
-                          {sf.promptPay && !isAdded && (
-                            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono">({sf.promptPay})</span>
-                          )}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
-                  <span>* เมื่อเพิ่มเพื่อนและพร้อมเพย์ ระบบจะจดจำไว้ให้เลือกใช้ในครั้งถัดไปอัตโนมัติ</span>
-                  <button type="button" onClick={() => setShowSavedFriendsModal(true)} className="text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-1">
-                    <Icon name="book-plus" className="w-3.5 h-3.5"/> เปิดสมุดรายชื่อ
-                  </button>
-                </div>
-              )}
-
-              {friends.length > 0 && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 mt-4">
-                  {friends.map((friend) => {
-                    const isEditingThisFriend = editingTripFriendId === friend.id;
-
-                    if (isEditingThisFriend) {
-                      return (
-                        <div key={friend.id} className="bg-amber-500/10 border border-amber-500 rounded-xl p-3 space-y-2 shadow-sm">
-                          <div className="flex items-center justify-between text-[11px] font-semibold text-amber-600 dark:text-amber-300">
-                            <span>✏️ แก้ไขข้อมูลเพื่อน</span>
-                            <button type="button" onClick={() => setEditingTripFriendId(null)} className="text-slate-400 hover:text-slate-600">✕</button>
-                          </div>
-                          <input
-                            type="text"
-                            value={editTripFriendName}
-                            onChange={(e) => setEditTripFriendName(e.target.value)}
-                            placeholder="ชื่อเพื่อน"
-                            className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:border-amber-500"
-                          />
-                          <div className="flex gap-1.5">
-                            <input
-                              type="text"
-                              value={editTripFriendPP}
-                              onChange={(e) => setEditTripFriendPP(e.target.value)}
-                              placeholder="เบอร์พร้อมเพย์"
-                              className="flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono outline-none focus:border-amber-500"
-                            />
-                            <input
-                              type="number"
-                              min="1"
-                              value={editTripFriendHeadcount}
-                              onChange={(e) => setEditTripFriendHeadcount(e.target.value)}
-                              className="w-14 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-2 py-1.5 text-xs text-center outline-none focus:border-amber-500"
-                              title="จำนวนคน"
-                            />
-                          </div>
-                          <div className="flex gap-1.5 pt-1">
-                            <button
-                              type="button"
-                              onClick={() => handleSaveEditTripFriend(friend.id)}
-                              className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1"
-                            >
-                              <Icon name="check" className="w-3.5 h-3.5" /> บันทึก
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setEditingTripFriendId(null)}
-                              className="px-2.5 py-1.5 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-xs"
-                            >
-                              ยกเลิก
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <div key={friend.id} className="bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700/60 rounded-xl p-3 flex items-center justify-between">
-                        <div className="overflow-hidden mr-2">
-                          <p className="font-medium text-slate-800 dark:text-slate-200 text-sm truncate">{friend.name}</p>
-                          <p className="text-xs text-indigo-600 dark:text-indigo-400">สัดส่วน {friend.headcount} คน</p>
-                          {friend.promptPay ? (
-                            <p className="text-[11px] text-emerald-600 dark:text-emerald-400 truncate mt-0.5 font-mono">💳 {friend.promptPay}</p>
-                          ) : (
-                            <p className="text-[10px] text-slate-400 mt-0.5">ยังไม่ระบุพร้อมเพย์</p>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1 shrink-0">
-                          <div className="flex items-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg">
-                            <button type="button" onClick={() => handleUpdateHeadcount(friend.id, -1)} className="w-6 h-6 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 font-bold text-xs">-</button>
-                            <span className="text-xs font-semibold px-1.5 text-slate-700 dark:text-slate-300">{friend.headcount}</span>
-                            <button type="button" onClick={() => handleUpdateHeadcount(friend.id, 1)} className="w-6 h-6 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 font-bold text-xs">+</button>
-                          </div>
-                          <button type="button" onClick={() => handleStartEditTripFriend(friend)} className="p-1.5 text-slate-400 hover:text-amber-500 transition-colors" title="แก้ไขชื่อ / พร้อมเพย์">
-                            <Icon name="edit-2" className="w-3.5 h-3.5" />
-                          </button>
-                          <button type="button" onClick={() => handleDeleteFriend(friend.id)} className="p-1.5 text-slate-400 hover:text-rose-500 transition-colors" title="ลบชื่อนี้">
-                            <Icon name="trash-2" className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-
-            {/* Step 2: Expenses (Add & Edit) */}
-            <section ref={expenseSectionRef} className={`bg-white dark:bg-slate-800/80 border rounded-2xl p-5 shadow-md ${editingExpenseId ? 'border-amber-500 ring-2 ring-amber-500/20' : 'border-slate-200 dark:border-slate-700/80'}`}>
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-sm ${editingExpenseId ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' : 'bg-emerald-500/15 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'}`}>2</div>
-                  <h2 className="text-lg font-semibold flex items-center gap-2">
-                    <Icon name={editingExpenseId ? "edit-3" : "receipt"} className={`w-5 h-5 ${editingExpenseId ? 'text-amber-500' : 'text-emerald-500 dark:text-emerald-400'}`} />
-                    {editingExpenseId ? 'แก้ไขรายการใช้จ่าย' : 'บันทึกรายการใช้จ่าย'}
-                  </h2>
-                </div>
-                {editingExpenseId && <button onClick={handleCancelEditExpense} className="text-xs bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 px-3 py-1.5 rounded-xl font-medium">✕ ยกเลิก</button>}
-              </div>
-
-              <div className="mb-4 flex flex-wrap gap-1.5">
-                {POPULAR_CATEGORIES.map((cat, idx) => (
-                  <button key={idx} type="button" onClick={() => setExpenseTitle(cat.title)} className="text-xs bg-slate-100 hover:bg-slate-200 dark:bg-slate-900/90 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 px-2.5 py-1 rounded-lg">
-                    {cat.label}
-                  </button>
-                ))}
-              </div>
-
-              <form onSubmit={handleSaveExpenseForm} className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
-                  <div className="sm:col-span-3">
-                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">วันที่ใช้จ่าย</label>
-                    <input type="date" value={expenseDate} onChange={(e) => setExpenseDate(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-emerald-500 rounded-xl px-3 py-2.5 text-sm outline-none" />
-                  </div>
-                  <div className="sm:col-span-5">
-                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">ชื่อรายการค่าใช้จ่าย</label>
-                    <input type="text" placeholder="เช่น ค่ากุ้งเผา, ค่าทางด่วน..." value={expenseTitle} onChange={(e) => setExpenseTitle(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-emerald-500 rounded-xl px-4 py-2.5 text-sm outline-none" />
-                  </div>
-                  <div className="sm:col-span-4">
-                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">จำนวนเงิน (บาท)</label>
-                    <input type="number" step="any" placeholder="0.00" value={expenseAmount} onChange={(e) => setExpenseAmount(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-emerald-500 rounded-xl px-4 py-2.5 text-sm outline-none font-mono" />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-start">
-                  <div className="sm:col-span-6">
-                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">ใครเป็นคนออกเงินก่อน?</label>
-                    <select value={expensePayerId} onChange={(e) => setExpensePayerId(e.target.value)} disabled={friends.length === 0} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-emerald-500 rounded-xl px-3 py-2.5 text-sm outline-none text-slate-800 dark:text-slate-200">
-                      {friends.length === 0 ? <option value="">โปรดเพิ่มชื่อเพื่อนก่อน</option> : friends.map(f => <option key={f.id} value={f.id}>{f.name} (สำรองจ่าย)</option>)}
-                    </select>
-                  </div>
-                  <div className="sm:col-span-6">
-                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">แนบรูปใบเสร็จ / สลิป</label>
-                    <input type="file" accept="image/*" ref={fileInputRef} onChange={handleReceiptFileChange} className="w-full text-xs text-slate-500 dark:text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-emerald-500/15 file:text-emerald-700 dark:file:bg-slate-700 dark:file:text-emerald-300 hover:file:bg-emerald-500/25 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-2 py-1.5 outline-none cursor-pointer" />
-                    {receiptPreview && (
-                      <div className="mt-2 flex items-center justify-between bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-2">
-                        <div className="flex items-center gap-2.5">
-                          <img src={receiptPreview} alt="Receipt Preview" onClick={() => setViewingReceiptUrl(receiptPreview)} className="w-10 h-10 object-cover rounded-lg border border-emerald-500/40 cursor-pointer" />
-                          <div>
-                            <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">แนบรูปใบเสร็จแล้ว</p>
-                            <button type="button" onClick={() => setViewingReceiptUrl(receiptPreview)} className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline">ดูภาพขยาย</button>
-                          </div>
-                        </div>
-                        <button type="button" onClick={handleClearReceipt} className="text-xs text-rose-500 hover:text-rose-400 px-2 py-1 rounded-lg">ลบรูป</button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="pt-2">
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-xs font-medium text-slate-700 dark:text-slate-300">คนร่วมหารในบิลนี้</label>
-                    {friends.length > 0 && <button type="button" onClick={handleSelectAllParticipants} className="text-xs text-emerald-600 dark:text-emerald-400 hover:underline font-medium">{selectedParticipants.length === friends.length ? 'ยกเลิกทั้งหมด' : 'เลือกทุกคน'}</button>}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {friends.map((friend) => (
-                      <button key={friend.id} type="button" onClick={() => handleToggleParticipant(friend.id)} className={`px-3 py-1.5 rounded-xl text-xs font-medium flex items-center gap-1.5 border transition-all ${selectedParticipants.includes(friend.id) ? 'bg-emerald-500/15 border-emerald-500/60 text-emerald-700 dark:text-emerald-300 shadow-sm' : 'bg-slate-100 dark:bg-slate-900/50 border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-500'}`}>
-                        <Icon name={selectedParticipants.includes(friend.id) ? "check-square" : "square"} className="w-3.5 h-3.5" /> {friend.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex gap-2">
-                  <button type="submit" disabled={uploading || !expenseTitle.trim() || !expenseAmount || !expensePayerId || selectedParticipants.length === 0} className={`flex-1 disabled:opacity-50 text-white font-medium py-2.5 px-4 rounded-xl text-sm flex items-center justify-center gap-2 shadow-lg transition-all ${editingExpenseId ? 'bg-amber-600 hover:bg-amber-500' : 'bg-emerald-600 hover:bg-emerald-500'}`}>
-                    {uploading ? <><Icon name="loader" className="w-4 h-4 animate-spin" /> กำลังบันทึก...</> : editingExpenseId ? <><Icon name="check" className="w-4 h-4" /> บันทึกการแก้ไข</> : <><Icon name="plus" className="w-4 h-4" /> บันทึกรายการจ่ายนี้</>}
-                  </button>
-                </div>
-              </form>
-
-              <div className="mt-6 border-t border-slate-200 dark:border-slate-700/60 pt-4">
-                <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3 flex items-center justify-between">
-                  <span>รายการที่บันทึกแล้ว ({sortedExpenses.length})</span>
-                  <span className="text-xs font-normal">ยอดรวม: <strong className="text-emerald-600 dark:text-emerald-400 font-mono text-sm">฿{calculations.totalExpenseAmount.toLocaleString()}</strong></span>
-                </h3>
-                
-                {sortedExpenses.length === 0 ? (
-                  <div className="text-center py-5 text-slate-400 dark:text-slate-500 border border-dashed border-slate-300 dark:border-slate-700/60 rounded-xl text-xs">ยังไม่มีรายการค่าใช้จ่าย</div>
-                ) : (
-                  <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
-                    {sortedExpenses.map((exp) => {
-                      const payer = friends.find(f => f.id === exp.payerId);
-                      const pNames = exp.participantIds.map(pId => (friends.find(fr => fr.id === pId) || {}).name).filter(Boolean).join(', ');
-                      const isBeingEdited = editingExpenseId === exp.id;
-                      return (
-                        <div key={exp.id} className={`border rounded-xl p-3 flex items-center justify-between transition-all ${isBeingEdited ? 'bg-amber-500/10 border-amber-500' : 'bg-slate-50 dark:bg-slate-900/60 border-slate-200 dark:border-slate-700/50'}`}>
-                          <div className="overflow-hidden mr-2 space-y-1">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-[11px] bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-md font-medium">📅 {formatThaiDate(exp.date)}</span>
-                              <p className="font-medium text-slate-800 dark:text-slate-200 text-sm">{exp.title} - <span className="text-emerald-600 dark:text-emerald-400 font-mono font-semibold">฿{exp.amount.toLocaleString()}</span></p>
-                              {exp.receiptUrl && (
-                                <button type="button" onClick={() => setViewingReceiptUrl(exp.receiptUrl)} className="inline-flex items-center gap-1 text-[11px] bg-blue-500/15 text-blue-600 dark:text-blue-300 border border-blue-500/30 px-2 py-0.5 rounded-md hover:bg-blue-500/25 transition-colors"><Icon name="image" className="w-3 h-3" /> ดูใบเสร็จ</button>
-                              )}
-                            </div>
-                            <p className="text-xs text-slate-500 dark:text-slate-400">จ่ายโดย: <span className="text-amber-600 dark:text-amber-300 font-medium">{payer ? payer.name : 'ไม่ระบุ'}</span> | หาร: <span className="text-slate-700 dark:text-slate-300 truncate">{pNames || 'ทุกคน'}</span></p>
-                          </div>
-                          <div className="flex items-center gap-1 shrink-0">
-                            <button type="button" onClick={() => handleStartEditExpense(exp)} className="text-slate-500 hover:text-amber-500 p-1.5 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors flex items-center gap-1 text-xs"><Icon name="edit-2" className="w-4 h-4" /> <span className="hidden sm:inline">แก้ไข</span></button>
-                            <button type="button" onClick={() => handleDeleteExpense(exp.id)} className="text-slate-400 hover:text-rose-500 p-1.5 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors"><Icon name="trash-2" className="w-4 h-4" /></button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </section>
-
-            {/* Results Section */}
-            <section className="grid grid-cols-1 md:grid-cols-12 gap-6">
-              {/* ยอดรายคน */}
-              <div className="md:col-span-6 bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-5 shadow-md flex flex-col justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold flex items-center gap-2 mb-4"><Icon name="dollar-sign" className="w-5 h-5 text-teal-500 dark:text-teal-400" /> สรุปยอดรายคน/กลุ่ม</h2>
-                  <div className="space-y-2.5">
-                    {calculations.friendTotals.length === 0 ? (
-                      <p className="text-xs text-slate-400 dark:text-slate-500 text-center py-6">เพิ่มรายชื่อเพื่อนเพื่อดูสรุป</p>
-                    ) : (
-                      calculations.friendTotals.map((f) => (
-                        <div key={f.id} className="bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700/60 rounded-xl p-3 flex items-center justify-between text-xs">
-                          <div>
-                            <p className="font-semibold text-slate-800 dark:text-slate-200 text-sm">{f.name}</p>
-                            <p className="text-slate-500 dark:text-slate-400">จ่ายไป {f.paid.toLocaleString()} บ. (ควรจ่าย {f.shouldPay.toLocaleString('th-TH', { maximumFractionDigits: 1 })} บ.)</p>
-                          </div>
-                          <p className={`font-mono font-bold text-sm ${f.netBalance > 0.01 ? 'text-emerald-600 dark:text-emerald-400' : f.netBalance < -0.01 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400'}`}>
-                            {f.netBalance > 0.01 ? `+รับคืน ${f.netBalance.toLocaleString('th-TH', { maximumFractionDigits: 1 })}` : f.netBalance < -0.01 ? `ต้องจ่าย ${Math.abs(f.netBalance).toLocaleString('th-TH', { maximumFractionDigits: 1 })}` : 'สมดุล (0)'}
-                          </p>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* การโอนเงิน & ปุ่มบันทึก */}
-              <div className="md:col-span-6 bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-5 shadow-md flex flex-col justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold flex items-center gap-2 mb-4 text-amber-600 dark:text-amber-300"><Icon name="sparkles" className="w-5 h-5 text-amber-500 dark:text-amber-400" /> สรุปการโอนเงิน (เคลียร์ยอด)</h2>
-                  <div className="space-y-2.5 mb-4">
-                    {calculations.settlements.length === 0 ? (
-                      <div className="text-center py-6 bg-slate-50 dark:bg-slate-900/50 rounded-xl text-slate-400 text-sm border border-slate-200 dark:border-slate-800">
-                        {expenses.length === 0 ? 'ยังไม่มีรายการค่าใช้จ่าย' : '🎉 เคลียร์ยอดลงตัวเรียบร้อยแล้ว!'}
-                      </div>
-                    ) : (
-                      calculations.settlements.map((s, index) => (
-                        <div key={index} className="bg-slate-50 dark:bg-slate-900 border border-amber-500/40 rounded-xl p-3 flex items-center justify-between shadow-inner">
-                          <div>
-                            <span className="font-semibold text-sm flex items-center gap-1.5">
-                              <span className="text-slate-800 dark:text-slate-200">{s.fromName}</span>
-                              <span className="text-amber-600 dark:text-amber-400 text-xs">โอนให้ 👉</span>
-                              <span className="text-emerald-600 dark:text-emerald-300">{s.toName}</span>
-                            </span>
-                            {s.toPromptPay && <p className="text-xs text-indigo-600 dark:text-indigo-300 mt-0.5 font-mono">💳 พร้อมเพย์: {s.toPromptPay}</p>}
-                          </div>
-                          <span className="font-mono font-bold text-amber-600 dark:text-amber-400 text-sm">฿{s.amount.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                <div className="space-y-2 pt-2">
-                  <div className="flex gap-2">
-                    <button onClick={() => handleSaveToCloud(false)} disabled={saving || (friends.length === 0 && expenses.length === 0)} className="flex-1 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 text-slate-800 dark:text-slate-100 py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border border-slate-300 dark:border-slate-600">
-                      <Icon name="cloud-upload" className="w-4 h-4 text-amber-500 dark:text-amber-400" /> {saving ? "กำลังบันทึก..." : (currentTripId ? "💾 อัปเดตทริปนี้" : "☁️ บันทึกลง Cloud")}
-                    </button>
-                    {currentTripId && (
-                      <button onClick={() => handleSaveToCloud(true)} disabled={saving} className="bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-amber-700 dark:text-amber-300 py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center gap-1 border border-amber-500/40">
-                        <Icon name="copy-plus" className="w-4 h-4" /> บันทึกอันใหม่
-                      </button>
-                    )}
-                  </div>
-                  <button onClick={handleCopySummary} disabled={expenses.length === 0} className={`w-full py-3 px-4 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 shadow-lg ${copied ? 'bg-emerald-600 text-white' : 'bg-amber-500 hover:bg-amber-400 text-slate-950 disabled:opacity-50'}`}>
-                    <Icon name={copied ? "check" : "copy"} className="w-4 h-4" /> {copied ? 'คัดลอกสรุปเรียบร้อยแล้ว!' : 'คัดลอกสรุปข้อความ (ส่งลง LINE)'}
-                  </button>
-                </div>
-              </div>
-            </section>
-          </main>
-
-          {/* Modal จัดการสมุดรายชื่อเพื่อนถาวร */}
-          {showSavedFriendsModal && (
-            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-              <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl flex flex-col max-h-[85vh]">
-                <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-3">
-                  <div>
-                    <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
-                      <Icon name="book-user" className="w-5 h-5 text-indigo-500 dark:text-indigo-400" /> สมุดรายชื่อเพื่อนประจำ
-                    </h3>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">จัดการชื่อและพร้อมเพย์ที่จดจำไว้สำหรับใช้ทุกทริป</p>
-                  </div>
-                  <button onClick={() => { setShowSavedFriendsModal(false); setEditingSavedFriendId(null); setManageFriendName(''); setManageFriendPP(''); }} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm p-1">✕</button>
-                </div>
-
-                <form onSubmit={handleAddOrUpdateSavedFriend} className="bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
-                  <h4 className="text-xs font-semibold text-slate-600 dark:text-slate-400">{editingSavedFriendId ? '✏️ แก้ไขข้อมูลเพื่อนในสมุด' : '➕ เพิ่มเพื่อนใหม่ในสมุด'}</h4>
-                  <div className="grid grid-cols-2 gap-2">
-                    <input type="text" placeholder="ชื่อเพื่อน..." value={manageFriendName} onChange={(e)=>setManageFriendName(e.target.value)} className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-indigo-500 rounded-xl px-3 py-2 text-sm outline-none" required />
-                    <input type="text" placeholder="พร้อมเพย์ (ถ้ามี)" value={manageFriendPP} onChange={(e)=>setManageFriendPP(e.target.value)} className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-indigo-500 rounded-xl px-3 py-2 text-sm font-mono outline-none" />
-                  </div>
-                  <div className="flex gap-2">
-                    <button type="submit" disabled={!manageFriendName.trim()} className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2 rounded-xl text-xs shadow-sm transition-colors">
-                      {editingSavedFriendId ? 'บันทึกการแก้ไข' : 'เพิ่มลงสมุดถาวร'}
-                    </button>
-                    {editingSavedFriendId && (
-                      <button type="button" onClick={() => {setEditingSavedFriendId(null); setManageFriendName(''); setManageFriendPP('');}} className="px-3 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-medium transition-colors">ยกเลิก</button>
-                    )}
-                  </div>
-                </form>
-
-                <div className="overflow-y-auto space-y-2 flex-1 pr-1">
-                  {savedFriends.length === 0 ? (
-                    <div className="text-center py-8 text-slate-400 dark:text-slate-500 text-xs">ยังไม่มีเพื่อนในสมุดรายชื่อ</div>
-                  ) : (
-                    savedFriends.map(sf => {
-                      const isAdded = friends.some(f => f.name.toLowerCase() === sf.name.toLowerCase());
-                      return (
-                        <div key={sf.id} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 flex items-center justify-between shadow-sm">
-                          <div className="overflow-hidden mr-2">
-                            <p className="font-semibold text-slate-800 dark:text-slate-200 text-sm truncate">{sf.name}</p>
-                            {sf.promptPay ? (
-                              <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-mono mt-0.5">💳 PP: {sf.promptPay}</p>
-                            ) : (
-                              <p className="text-[10px] text-slate-400 mt-0.5">ไม่มีเลขพร้อมเพย์</p>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-1 shrink-0">
-                            <button
-                              type="button"
-                              disabled={isAdded}
-                              onClick={() => handleAddFriendToTrip(sf.name, sf.promptPay || '', 1, false)}
-                              className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-colors ${
-                                isAdded
-                                  ? 'bg-slate-100 dark:bg-slate-700 text-slate-400 cursor-not-allowed'
-                                  : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 hover:bg-emerald-500/25'
-                              }`}
-                            >
-                              {isAdded ? 'เพิ่มแล้ว' : '+ ดึงเข้าทริป'}
-                            </button>
-                            <button type="button" onClick={() => { setEditingSavedFriendId(sf.id); setManageFriendName(sf.name); setManageFriendPP(sf.promptPay || ''); }} className="p-1.5 text-slate-400 hover:text-amber-500 dark:hover:text-amber-400 transition-colors" title="แก้ไข"><Icon name="edit-2" className="w-3.5 h-3.5"/></button>
-                            <button type="button" onClick={() => handleDeleteSavedFriend(sf.id)} className="p-1.5 text-slate-400 hover:text-rose-500 transition-colors" title="ลบ"><Icon name="trash-2" className="w-3.5 h-3.5"/></button>
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Modal ดูรูปใบเสร็จ */}
-          {viewingReceiptUrl && (
-            <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={() => setViewingReceiptUrl(null)}>
-              <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl max-w-lg w-full p-4 space-y-3 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-2">
-                  <h3 className="text-sm font-bold flex items-center gap-2"><Icon name="image" className="w-4 h-4 text-emerald-500" /> รูปใบเสร็จ / สลิป</h3>
-                  <button onClick={() => setViewingReceiptUrl(null)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm px-2">✕</button>
-                </div>
-                <div className="max-h-[70vh] overflow-auto flex justify-center bg-slate-100 dark:bg-slate-900 rounded-xl p-2">
-                  <img src={viewingReceiptUrl} alt="Receipt" className="max-w-full h-auto rounded-lg object-contain" />
-                </div>
-                <div className="flex justify-end gap-2">
-                  <a href={viewingReceiptUrl} download={`receipt_${Date.now()}.jpg`} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1">ดาวน์โหลดรูป</a>
-                  <button onClick={() => setViewingReceiptUrl(null)} className="px-4 py-1.5 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-semibold">ปิด</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* History Modal */}
-          {showHistoryModal && (
-            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-              <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl max-h-[85vh] flex flex-col">
-                <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-3">
-                  <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2"><Icon name="folder-clock" className="w-5 h-5 text-amber-500 dark:text-amber-400" /> ประวัติทริปบน Cloud</h3>
-                  <button onClick={() => setShowHistoryModal(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm p-1">✕</button>
-                </div>
-                <div className="overflow-y-auto space-y-3 flex-1 pr-1">
-                  {history.length === 0 ? <div className="text-center py-12 text-slate-400 text-sm">ยังไม่มีประวัติทริป</div> : history.map((record) => (
-                    <div key={record.id} className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 rounded-xl p-3.5 space-y-2">
-                      <div className="flex items-start justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
-                        <div>
-                          <h4 className="font-bold text-amber-600 dark:text-amber-300 text-sm">{record.tripName || 'ทริปไม่มีชื่อ'}</h4>
-                          <span className="text-[11px] text-slate-500">📅 บันทึกเมื่อ: {record.date}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button onClick={() => handleLoadTripForEdit(record)} className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1"><Icon name="edit-3" className="w-3.5 h-3.5" /> โหลด</button>
-                          <button onClick={(e) => handleDeleteHistoryRecord(record.id, e)} className="p-1 text-slate-400 hover:text-rose-500"><Icon name="trash-2" className="w-4 h-4" /></button>
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-300">
-                        <span>ยอดรวม: <strong className="text-emerald-600 dark:text-emerald-400 font-mono">฿{record.totalAmount?.toLocaleString()}</strong></span>
-                        <span className="text-slate-500 dark:text-slate-400">({record.friendsCount || record.friendsData?.length || 0} คน / {record.expensesCount || record.expensesData?.length || 0} รายการ)</span>
-                      </div>
-                      <details className="text-xs">
-                        <summary className="cursor-pointer text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">ดูสรุปข้อความเดิม</summary>
-                        <pre className="mt-2 text-[11px] font-mono bg-slate-100 dark:bg-slate-950 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 whitespace-pre-wrap">
-                          {record.summaryText}
-                        </pre>
-                      </details>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Reset Modal */}
-          {showResetModal && (
-            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-              <div className="bg-white dark:bg-slate-800 border rounded-2xl max-w-sm w-full p-6 space-y-4">
-                <h3 className="text-lg font-bold flex items-center gap-2 text-rose-500 dark:text-rose-400"><Icon name="alert-triangle" className="w-5 h-5" /> ยืนยันการเริ่มทริปใหม่?</h3>
-                <p className="text-sm text-slate-600 dark:text-slate-300">ข้อมูลหน้าปัจจุบันจะหายไป (ไม่กระทบประวัติทริปและสมุดรายชื่อเพื่อนที่เซฟแล้ว)</p>
-                <div className="flex gap-3 pt-2">
-                  <button onClick={() => setShowResetModal(false)} className="flex-1 px-4 py-2 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl text-sm font-medium hover:bg-slate-300 dark:hover:bg-slate-600">ยกเลิก</button>
-                  <button onClick={confirmReset} className="flex-1 px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-sm font-medium">เริ่มใหม่</button>
-                </div>
-              </div>
-            </div>
-          )}
+          </div>
         </div>
-      );
-    }
 
-    const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<App />);
-  </script>
+        <!-- Editable Trip Name + Today Chip -->
+        <div class="hero-tripname-row">
+          <div class="tripname-input-wrap">
+            <input
+              type="text"
+              id="tripNameInput"
+              class="tripname-input"
+              placeholder="ตั้งชื่อทริป..."
+              aria-label="ชื่อทริป"
+              autocomplete="off"
+            />
+            <span class="material-symbols-rounded tripname-edit-icon" aria-hidden="true">edit</span>
+          </div>
+          <button type="button" id="btnSetToday" class="hero-today-chip" title="ตั้งเป็นวันที่วันนี้">
+            <span class="material-symbols-rounded">today</span>
+            <span>วันนี้</span>
+          </button>
+        </div>
+
+        <!-- Big Total & Stat Pills -->
+        <div class="hero-total-section">
+          <div class="hero-total-label">ยอดรวมทั้งหมด</div>
+          <div class="hero-total-row">
+            <span class="hero-currency">฿</span>
+            <span id="heroTotalAmount" class="hero-total-value">0</span>
+          </div>
+          <div class="hero-pills-row">
+            <span class="hero-pill" id="pillHeadcount">👥 0 คน</span>
+            <span class="hero-pill" id="pillExpenseCount">🧾 0 รายการ</span>
+            <span class="hero-pill hidden" id="pillAvgPerPerson">≈ ฿0/คน</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Actions Card (Overlapping bottom of Hero) -->
+      <div class="quick-actions-wrap">
+        <div class="app-card quick-actions-card">
+          <button type="button" id="qaFriendBook" class="quick-action-btn">
+            <div class="qa-icon-box qa-indigo">
+              <span class="material-symbols-rounded">contacts</span>
+            </div>
+            <span class="qa-label">สมุดเพื่อน</span>
+          </button>
+
+          <button type="button" id="qaHistory" class="quick-action-btn">
+            <div class="qa-icon-box qa-amber">
+              <span class="material-symbols-rounded">history</span>
+            </div>
+            <span class="qa-label">ประวัติ</span>
+          </button>
+
+          <button type="button" id="qaSaveCloud" class="quick-action-btn">
+            <div class="qa-icon-box qa-teal" id="qaSaveIconBox">
+              <span class="material-symbols-rounded" id="qaSaveIcon">cloud_upload</span>
+              <div class="spinner spinner-sm hidden" id="qaSaveSpinner"></div>
+            </div>
+            <span class="qa-label" id="qaSaveLabel">บันทึก Cloud</span>
+          </button>
+
+          <button type="button" id="qaNewTrip" class="quick-action-btn">
+            <div class="qa-icon-box qa-rose">
+              <span class="material-symbols-rounded">restart_alt</span>
+            </div>
+            <span class="qa-label">เริ่มใหม่</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- MAIN CONTENT CARDS -->
+    <main class="main-content">
+      <!-- 1. MEMBERS CARD -->
+      <section class="app-card members-card" id="membersCard" aria-label="สมาชิกในทริป">
+        <div id="membersEmptyState" class="members-empty-wrap">
+          <div class="empty-state">
+            <div class="empty-emoji-circle">👋</div>
+            <h2 class="empty-title">ยังไม่มีเพื่อนในทริป</h2>
+            <p class="empty-message">เพิ่มเพื่อนใหม่ หรือดึงรายชื่อจากสมุดเพื่อนได้ในคลิกเดียว</p>
+          </div>
+          <div class="members-empty-actions">
+            <button type="button" id="btnEmptyAddMember" class="btn btn-primary btn-flex">
+              <span class="material-symbols-rounded">person_add</span>
+              <span>เพิ่มเพื่อน</span>
+            </button>
+            <button type="button" id="btnEmptyAddAllBook" class="btn btn-tonal btn-flex hidden">
+              <span class="material-symbols-rounded">group_add</span>
+              <span id="btnEmptyAddAllBookText">ดึงทั้งหมด (0)</span>
+            </button>
+          </div>
+        </div>
+
+        <div id="membersRowWrap" class="members-row-scroll hidden">
+          <div class="members-bubbles-list" id="membersBubblesList"></div>
+        </div>
+      </section>
+
+      <!-- 2. EXPENSES CARD -->
+      <section class="app-card" id="expensesCard" aria-label="รายการค่าใช้จ่าย">
+        <div class="section-header">
+          <div class="section-header-text">
+            <h2 class="section-title">รายการค่าใช้จ่าย</h2>
+            <p class="section-subtitle" id="expensesSubtitle">จดบิลและสลิปของทริป</p>
+          </div>
+          <button type="button" id="btnSectionAddExpense" class="btn-text hidden">+ เพิ่มรายการ</button>
+        </div>
+
+        <div id="expensesEmptyState">
+          <div class="empty-state">
+            <div class="empty-emoji-circle">🧾</div>
+            <h3 class="empty-title">ยังไม่มีรายการค่าใช้จ่าย</h3>
+            <p class="empty-message" id="expensesEmptyMsg">เพิ่มสมาชิกในทริปด้านบนก่อน แล้วจึงบันทึกรายการ</p>
+          </div>
+          <button type="button" id="btnFirstExpense" class="btn btn-primary btn-block hidden">
+            เพิ่มรายการแรก
+          </button>
+        </div>
+
+        <div id="expensesList" class="items-list hidden"></div>
+      </section>
+
+      <!-- 3. BALANCES CARD -->
+      <section class="app-card" id="balancesCard" aria-label="สรุปยอดรายคน">
+        <div class="section-header">
+          <div class="section-header-text">
+            <h2 class="section-title">สรุปยอดรายคน</h2>
+            <p class="section-subtitle">ยอดที่จ่ายจริง เทียบกับส่วนที่ต้องหาร</p>
+          </div>
+        </div>
+
+        <div id="balancesEmptyState" class="empty-state">
+          <div class="empty-emoji-circle">📊</div>
+          <h3 class="empty-title">ยังไม่มีข้อมูลสรุปยอด</h3>
+          <p class="empty-message">เพิ่มสมาชิกและรายการค่าใช้จ่ายเพื่อดูยอดรายคน</p>
+        </div>
+
+        <div id="balancesList" class="items-list hidden"></div>
+      </section>
+
+      <!-- 4. SETTLEMENTS CARD -->
+      <section class="app-card" id="settlementsCard" aria-label="สรุปการโอนเงิน">
+        <div class="section-header">
+          <div class="section-header-text">
+            <h2 class="section-title">สรุปการโอนเงิน</h2>
+            <p class="section-subtitle" id="settlementsSubtitle">เคลียร์ยอดเรียบร้อย</p>
+          </div>
+        </div>
+
+        <div id="settlementsEmptyState" class="empty-state">
+          <div class="empty-emoji-circle">🎉</div>
+          <h3 class="empty-title">ยอดสมดุลแล้ว</h3>
+          <p class="empty-message">ไม่มีรายการที่ต้องโอนเงินเพิ่มเติม</p>
+        </div>
+
+        <div id="settlementsList" class="settlements-list hidden"></div>
+      </section>
+
+      <!-- 5. SHARE & EXPORT CARD -->
+      <section class="app-card" id="exportCard" aria-label="แชร์สรุปและบันทึก">
+        <div class="section-header">
+          <div class="section-header-text">
+            <h2 class="section-title">แชร์สรุป &amp; บันทึก</h2>
+            <p class="section-subtitle">เลือกแชร์เป็นข้อความสำหรับ LINE หรือแชร์ออกเป็นรูปภาพสวยๆ</p>
+          </div>
+        </div>
+
+        <button type="button" id="btnCopyLineSummary" class="btn btn-line btn-block">
+          <span class="material-symbols-rounded">content_copy</span>
+          <span>คัดลอกข้อความส่ง LINE</span>
+        </button>
+
+        <div class="export-row-2">
+          <button type="button" id="btnShareImageSummary" class="btn btn-tonal btn-flex">
+            <span class="material-symbols-rounded">image</span>
+            <span>แชร์เป็นรูปภาพ</span>
+          </button>
+          <button type="button" id="btnShareTextSummary" class="btn btn-outlined btn-flex">
+            <span class="material-symbols-rounded">share</span>
+            <span>แชร์ข้อความ</span>
+          </button>
+        </div>
+
+        <button type="button" id="btnBottomSaveCloud" class="btn btn-outlined btn-block">
+          <span class="material-symbols-rounded">cloud_upload</span>
+          <span id="btnBottomSaveCloudText">บันทึกทริปขึ้น Cloud</span>
+        </button>
+      </section>
+    </main>
+
+    <!-- EXTENDED FLOATING ACTION BUTTON -->
+    <button type="button" id="fabAddExpense" class="extended-fab hidden" aria-label="เพิ่มรายการค่าใช้จ่าย">
+      <span class="material-symbols-rounded">add</span>
+      <span>เพิ่มรายการ</span>
+    </button>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- BOTTOM SHEETS & DIALOGS                                               -->
+  <!-- ===================================================================== -->
+
+  <!-- 1. Add Member Sheet -->
+  <div id="sheetAddMember" class="sheet-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="addMemberTitle">
+    <div class="bottom-sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-body">
+        <div class="sheet-header">
+          <h3 id="addMemberTitle" class="sheet-title">เพิ่มเพื่อนร่วมทริป</h3>
+          <p class="sheet-subtitle">ระบบจะจำชื่อและพร้อมเพย์ไว้ในสมุดเพื่อนให้อัตโนมัติ</p>
+        </div>
+
+        <div class="field-group">
+          <label class="app-textfield">
+            <span class="material-symbols-rounded field-icon">person</span>
+            <div class="field-inner">
+              <span class="field-label">ชื่อเพื่อน / กลุ่ม</span>
+              <input type="text" id="addMemberName" placeholder="เช่น นัท, คู่บอย-แก้ม" autocomplete="off" />
+            </div>
+          </label>
+
+          <label class="app-textfield">
+            <span class="material-symbols-rounded field-icon">account_balance_wallet</span>
+            <div class="field-inner">
+              <span class="field-label">พร้อมเพย์ (ไม่บังคับ)</span>
+              <input type="tel" id="addMemberPromptPay" placeholder="เบอร์โทร หรือเลขบัตรประชาชน" autocomplete="off" />
+            </div>
+          </label>
+
+          <div class="headcount-box">
+            <div class="headcount-info">
+              <div class="headcount-title">นับเป็นกี่คน</div>
+              <div class="headcount-sub">สำหรับคู่รัก/ครอบครัวที่จ่ายรวมกัน</div>
+            </div>
+            <div class="stepper">
+              <button type="button" id="addMemberDec" class="stepper-btn" aria-label="ลดจำนวนคน">
+                <span class="material-symbols-rounded">remove</span>
+              </button>
+              <span id="addMemberHeadcountVal" class="stepper-val">1</span>
+              <button type="button" id="addMemberInc" class="stepper-btn" aria-label="เพิ่มจำนวนคน">
+                <span class="material-symbols-rounded">add</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <button type="button" id="btnConfirmAddMember" class="btn btn-primary btn-block btn-lg" disabled>
+          <span class="material-symbols-rounded">person_add</span>
+          <span>เพิ่มเข้าทริป</span>
+        </button>
+
+        <div id="addMemberFromBookSection" class="from-book-section hidden">
+          <div class="sheet-divider"></div>
+          <div class="from-book-header">
+            <div>
+              <div class="from-book-title">จากสมุดเพื่อน</div>
+              <div class="from-book-sub">แตะชื่อเพื่อดึงเข้าทริปทันที</div>
+            </div>
+            <button type="button" id="btnSheetAddAllBook" class="btn-text">เพิ่มทั้งหมด</button>
+          </div>
+          <div id="addMemberBookChips" class="chips-flow"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. Edit Member Sheet -->
+  <div id="sheetEditMember" class="sheet-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="editMemberTitle">
+    <div class="bottom-sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-body">
+        <div class="member-edit-hero">
+          <div id="editMemberAvatar" class="avatar-circle avatar-lg"></div>
+          <div>
+            <h3 id="editMemberTitle" class="sheet-title">ชื่อสมาชิก</h3>
+            <p class="sheet-subtitle">แก้ไขข้อมูลเพื่อนในทริปนี้</p>
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label class="app-textfield">
+            <span class="material-symbols-rounded field-icon">person</span>
+            <div class="field-inner">
+              <span class="field-label">ชื่อ</span>
+              <input type="text" id="editMemberName" autocomplete="off" />
+            </div>
+          </label>
+
+          <label class="app-textfield">
+            <span class="material-symbols-rounded field-icon">account_balance_wallet</span>
+            <div class="field-inner">
+              <span class="field-label">พร้อมเพย์</span>
+              <input type="tel" id="editMemberPromptPay" placeholder="เบอร์โทร หรือเลขบัตรประชาชน" autocomplete="off" />
+            </div>
+          </label>
+
+          <div class="headcount-box">
+            <div class="headcount-info">
+              <div class="headcount-title">นับเป็นกี่คน</div>
+              <div class="headcount-sub">สำหรับคู่รัก/ครอบครัวที่จ่ายรวมกัน</div>
+            </div>
+            <div class="stepper">
+              <button type="button" id="editMemberDec" class="stepper-btn" aria-label="ลดจำนวนคน">
+                <span class="material-symbols-rounded">remove</span>
+              </button>
+              <span id="editMemberHeadcountVal" class="stepper-val">1</span>
+              <button type="button" id="editMemberInc" class="stepper-btn" aria-label="เพิ่มจำนวนคน">
+                <span class="material-symbols-rounded">add</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="sheet-actions-row">
+          <button type="button" id="btnRemoveMember" class="btn btn-danger-outline btn-flex btn-lg">
+            ลบออกจากทริป
+          </button>
+          <button type="button" id="btnSaveMember" class="btn btn-primary btn-flex btn-lg">
+            บันทึก
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. Expense Editor Sheet (Add & Edit) -->
+  <div id="sheetExpenseEditor" class="sheet-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="expenseSheetTitle">
+    <div class="bottom-sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-body">
+        <div class="sheet-header">
+          <h3 id="expenseSheetTitle" class="sheet-title">เพิ่มรายการค่าใช้จ่าย</h3>
+          <p id="expenseSheetSubtitle" class="sheet-subtitle">เลือกหมวดหมู่ ใส่ยอดเงิน และเลือกคนร่วมหาร</p>
+        </div>
+
+        <!-- Category Presets -->
+        <div id="expenseCategoryPresets" class="category-chips-scroll"></div>
+
+        <div class="field-group">
+          <label class="app-textfield">
+            <div class="field-inner">
+              <span class="field-label">ชื่อรายการ</span>
+              <input type="text" id="expenseTitleInput" placeholder="เช่น ค่าอาหาร, ค่าน้ำมัน, ที่พัก" autocomplete="off" />
+            </div>
+          </label>
+
+          <div class="amount-date-row">
+            <label class="app-textfield amount-field">
+              <div class="field-inner">
+                <span class="field-label">จำนวนเงิน (฿)</span>
+                <input type="number" id="expenseAmountInput" placeholder="0.00" step="any" min="0" inputmode="decimal" />
+              </div>
+            </label>
+
+            <label class="date-picker-chip" title="เลือกวันที่">
+              <span class="material-symbols-rounded date-chip-icon">calendar_today</span>
+              <span id="expenseDateDisplay" class="date-chip-text">วันนี้</span>
+              <input type="date" id="expenseDateInput" class="sr-only-date" />
+            </label>
+          </div>
+        </div>
+
+        <!-- Payer Selection -->
+        <div class="selector-section">
+          <div class="selector-label">ใครเป็นคนจ่าย?</div>
+          <div id="expensePayerChips" class="payer-chips-scroll"></div>
+        </div>
+
+        <!-- Participants Selection -->
+        <div class="selector-section">
+          <div class="selector-header-row">
+            <div class="selector-label" id="expenseParticipantsLabel">ใครร่วมหารบ้าง? (0/0)</div>
+            <div class="selector-quick-btns">
+              <button type="button" id="btnSelectAllParticipants" class="btn-text-sm">ทั้งหมด</button>
+              <button type="button" id="btnClearParticipants" class="btn-text-sm">ล้าง</button>
+            </div>
+          </div>
+          <div id="expenseParticipantChips" class="chips-flow"></div>
+        </div>
+
+        <!-- Receipt Attachment -->
+        <div class="receipt-attach-row">
+          <input type="file" id="expenseReceiptInput" accept="image/*" class="hidden" />
+          <button type="button" id="btnAttachReceipt" class="btn btn-outlined btn-flex">
+            <span class="material-symbols-rounded">attach_file</span>
+            <span id="btnAttachReceiptText">แนบสลิป / ใบเสร็จ</span>
+          </button>
+
+          <div id="expenseReceiptThumbWrap" class="receipt-thumb-box hidden">
+            <img id="expenseReceiptThumbImg" alt="สลิปที่แนบ" />
+            <button type="button" id="btnRemoveReceipt" class="receipt-remove-btn" aria-label="ลบรูปสลิป">
+              <span class="material-symbols-rounded">close</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Submit / Edit Actions -->
+        <div id="expenseAddActions">
+          <button type="button" id="btnSubmitNewExpense" class="btn btn-primary btn-block btn-lg" disabled>
+            บันทึกรายการ
+          </button>
+        </div>
+
+        <div id="expenseEditActions" class="sheet-actions-row hidden">
+          <button type="button" id="btnDeleteEditingExpense" class="btn btn-danger-outline btn-lg" style="flex:0.75">
+            <span class="material-symbols-rounded">delete</span>
+            <span>ลบ</span>
+          </button>
+          <button type="button" id="btnUpdateEditingExpense" class="btn btn-primary btn-lg" style="flex:1.4">
+            บันทึกการแก้ไข
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. Summary Image Preview Sheet -->
+  <div id="sheetImagePreview" class="sheet-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="imgPreviewTitle">
+    <div class="bottom-sheet sheet-wide">
+      <div class="sheet-handle"></div>
+      <div class="sheet-body">
+        <div class="sheet-header">
+          <h3 id="imgPreviewTitle" class="sheet-title">สรุปค่าใช้จ่ายแบบรูปภาพ</h3>
+          <p class="sheet-subtitle">พร้อมส่งเข้า LINE หรือบันทึกลงเครื่อง</p>
+        </div>
+
+        <div class="image-preview-container" id="imagePreviewContainer">
+          <div id="imagePreviewLoading" class="preview-loading">
+            <div class="spinner"></div>
+            <span>กำลังสร้างรูปสรุป...</span>
+          </div>
+          <img id="summaryPreviewImg" class="summary-preview-img hidden" alt="พรีวิวรูปสรุปค่าใช้จ่าย" />
+        </div>
+
+        <div class="sheet-actions-row">
+          <button type="button" id="btnDownloadSummaryImg" class="btn btn-outlined btn-flex btn-lg">
+            <span class="material-symbols-rounded">download</span>
+            <span>บันทึกรูป</span>
+          </button>
+          <button type="button" id="btnShareSummaryImgNow" class="btn btn-primary btn-flex btn-lg" style="flex:1.3">
+            <span class="material-symbols-rounded">share</span>
+            <span>แชร์รูปภาพ</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. Friend Book Sheet -->
+  <div id="sheetFriendBook" class="sheet-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="friendBookTitle">
+    <div class="bottom-sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-body">
+        <div class="sheet-header">
+          <h3 id="friendBookTitle" class="sheet-title">สมุดเพื่อน (0)</h3>
+          <p class="sheet-subtitle">บันทึกรายชื่อและพร้อมเพย์ไว้ใช้ซ้ำในทริปถัดไป</p>
+        </div>
+
+        <label class="app-textfield">
+          <span class="material-symbols-rounded field-icon">search</span>
+          <div class="field-inner">
+            <span class="field-label">ค้นหา</span>
+            <input type="text" id="friendBookSearch" placeholder="ชื่อ หรือ เบอร์พร้อมเพย์..." autocomplete="off" />
+          </div>
+        </label>
+
+        <div class="friend-book-add-row">
+          <label class="app-textfield" style="flex:1">
+            <div class="field-inner">
+              <span class="field-label">ชื่อเพื่อน</span>
+              <input type="text" id="friendBookNewName" placeholder="ชื่อ" autocomplete="off" />
+            </div>
+          </label>
+          <label class="app-textfield" style="flex:1">
+            <div class="field-inner">
+              <span class="field-label">พร้อมเพย์</span>
+              <input type="tel" id="friendBookNewPromptPay" placeholder="เบอร์/เลขบัตร" autocomplete="off" />
+            </div>
+          </label>
+          <button type="button" id="btnAddFriendToBook" class="icon-filled-btn" disabled aria-label="เพิ่มลงสมุดเพื่อน">
+            <span class="material-symbols-rounded">add</span>
+          </button>
+        </div>
+
+        <div id="friendBookEmpty" class="empty-state">
+          <div class="empty-emoji-circle">📖</div>
+          <h4 class="empty-title" id="friendBookEmptyTitle">สมุดเพื่อนยังว่าง</h4>
+          <p class="empty-message" id="friendBookEmptyMsg">เพิ่มรายชื่อด้านบนเพื่อเก็บไว้ใช้ครั้งต่อไป</p>
+        </div>
+
+        <div id="friendBookList" class="sheet-scroll-list hidden"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 6. Cloud Trips History Sheet -->
+  <div id="sheetCloudTrips" class="sheet-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="cloudTripsTitle">
+    <div class="bottom-sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-body">
+        <div class="sheet-header">
+          <h3 id="cloudTripsTitle" class="sheet-title">ประวัติทริปบน Cloud</h3>
+          <p class="sheet-subtitle">แตะเพื่อโหลดทริปที่เคยบันทึกไว้กลับมาแก้ไข</p>
+        </div>
+
+        <div id="cloudTripsLoading" class="preview-loading hidden">
+          <div class="spinner"></div>
+        </div>
+
+        <div id="cloudTripsEmpty" class="empty-state hidden">
+          <div class="empty-emoji-circle">☁️</div>
+          <h4 class="empty-title">ยังไม่มีประวัติทริปบน Cloud</h4>
+          <p class="empty-message">กด "บันทึก Cloud" เพื่อเก็บข้อมูลทริปไว้ออนไลน์</p>
+        </div>
+
+        <div id="cloudTripsList" class="sheet-scroll-list hidden"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 7. Receipt Fullscreen Preview Dialog -->
+  <div id="dialogReceiptPreview" class="modal-backdrop hidden" role="dialog" aria-modal="true">
+    <div class="alert-dialog receipt-dialog">
+      <h3 class="dialog-title">สลิป / ใบเสร็จ</h3>
+      <div class="receipt-full-wrap">
+        <img id="receiptFullImg" alt="รูปสลิป" />
+      </div>
+      <div class="dialog-actions">
+        <button type="button" id="btnCloseReceiptPreview" class="btn-text">ปิด</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 8. New Trip Confirm Dialog -->
+  <div id="dialogNewTripConfirm" class="modal-backdrop hidden" role="dialog" aria-modal="true">
+    <div class="alert-dialog">
+      <h3 class="dialog-title">ยืนยันการเริ่มทริปใหม่?</h3>
+      <p class="dialog-text">ข้อมูลทริปปัจจุบันที่ยังไม่บันทึกลง Cloud จะหายไป</p>
+      <div class="dialog-actions">
+        <button type="button" id="btnCancelNewTrip" class="btn-text">ยกเลิก</button>
+        <button type="button" id="btnConfirmNewTrip" class="btn btn-primary">เริ่มทริปใหม่</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SNACKBAR / TOAST -->
+  <div id="snackbar" class="snackbar" role="status" aria-live="polite"></div>
+
+  <!-- SCRIPTS -->
+  <script src="./summary-exporter.js"></script>
+  <script src="./app.js"></script>
 </body>
 </html>
