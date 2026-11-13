@@ -3,9 +3,11 @@
  * Compatible with Firestore project: trip-expense-calculator-9261b
  * Works both locally via file:// and hosted on GitHub Pages (https://)
  */
+(function () {
+"use strict";
 
 // ============================================================================
-// 1. Firebase Configuration (Loaded from firebase-config.js or localStorage)
+// 1. Firebase Configuration (Loaded from window.FIREBASE_CONFIG or localStorage)
 // ============================================================================
 
 const FIREBASE_KEY_STORAGE = "trip_expense_firebase_api_key";
@@ -2313,3 +2315,5 @@ function init() {
 }
 
 init();
+})();
+

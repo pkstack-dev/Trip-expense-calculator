@@ -2,6 +2,8 @@
  * 1:1 Port of SummaryImageExporter.kt to HTML5 Canvas
  * Renders a crisp 1080px-wide summary card image ready for LINE sharing or downloading.
  */
+(function () {
+"use strict";
 
 const IMG_WIDTH = 1080;
 const OUTER_PAD = 36;
@@ -742,4 +744,6 @@ function drawExpenseRow(ctx, row, y, isLast) {
 }
 
 window.renderSummaryCanvas = renderSummaryCanvas;
+})();
+
 
