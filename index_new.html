@@ -1019,4 +1019,386 @@
                             <button
                               type="button"
                               onClick={() => setEditingTripFriendId(null)}
-                              className="px-2.5 py-1.5 bg-slate-200 dark:
+                              className="px-2.5 py-1.5 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-xs"
+                            >
+                              ยกเลิก
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div key={friend.id} className="bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700/60 rounded-xl p-3 flex items-center justify-between">
+                        <div className="overflow-hidden mr-2">
+                          <p className="font-medium text-slate-800 dark:text-slate-200 text-sm truncate">{friend.name}</p>
+                          <p className="text-xs text-indigo-600 dark:text-indigo-400">สัดส่วน {friend.headcount} คน</p>
+                          {friend.promptPay ? (
+                            <p className="text-[11px] text-emerald-600 dark:text-emerald-400 truncate mt-0.5 font-mono">💳 {friend.promptPay}</p>
+                          ) : (
+                            <p className="text-[10px] text-slate-400 mt-0.5">ยังไม่ระบุพร้อมเพย์</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <div className="flex items-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg">
+                            <button type="button" onClick={() => handleUpdateHeadcount(friend.id, -1)} className="w-6 h-6 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 font-bold text-xs">-</button>
+                            <span className="text-xs font-semibold px-1.5 text-slate-700 dark:text-slate-300">{friend.headcount}</span>
+                            <button type="button" onClick={() => handleUpdateHeadcount(friend.id, 1)} className="w-6 h-6 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 font-bold text-xs">+</button>
+                          </div>
+                          <button type="button" onClick={() => handleStartEditTripFriend(friend)} className="p-1.5 text-slate-400 hover:text-amber-500 transition-colors" title="แก้ไขชื่อ / พร้อมเพย์">
+                            <Icon name="edit-2" className="w-3.5 h-3.5" />
+                          </button>
+                          <button type="button" onClick={() => handleDeleteFriend(friend.id)} className="p-1.5 text-slate-400 hover:text-rose-500 transition-colors" title="ลบชื่อนี้">
+                            <Icon name="trash-2" className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+
+            {/* Step 2: Expenses (Add & Edit) */}
+            <section ref={expenseSectionRef} className={`bg-white dark:bg-slate-800/80 border rounded-2xl p-5 shadow-md ${editingExpenseId ? 'border-amber-500 ring-2 ring-amber-500/20' : 'border-slate-200 dark:border-slate-700/80'}`}>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-sm ${editingExpenseId ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' : 'bg-emerald-500/15 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'}`}>2</div>
+                  <h2 className="text-lg font-semibold flex items-center gap-2">
+                    <Icon name={editingExpenseId ? "edit-3" : "receipt"} className={`w-5 h-5 ${editingExpenseId ? 'text-amber-500' : 'text-emerald-500 dark:text-emerald-400'}`} />
+                    {editingExpenseId ? 'แก้ไขรายการใช้จ่าย' : 'บันทึกรายการใช้จ่าย'}
+                  </h2>
+                </div>
+                {editingExpenseId && <button onClick={handleCancelEditExpense} className="text-xs bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 px-3 py-1.5 rounded-xl font-medium">✕ ยกเลิก</button>}
+              </div>
+
+              <div className="mb-4 flex flex-wrap gap-1.5">
+                {POPULAR_CATEGORIES.map((cat, idx) => (
+                  <button key={idx} type="button" onClick={() => setExpenseTitle(cat.title)} className="text-xs bg-slate-100 hover:bg-slate-200 dark:bg-slate-900/90 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 px-2.5 py-1 rounded-lg">
+                    {cat.label}
+                  </button>
+                ))}
+              </div>
+
+              <form onSubmit={handleSaveExpenseForm} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                  <div className="sm:col-span-3">
+                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">วันที่ใช้จ่าย</label>
+                    <input type="date" value={expenseDate} onChange={(e) => setExpenseDate(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-emerald-500 rounded-xl px-3 py-2.5 text-sm outline-none" />
+                  </div>
+                  <div className="sm:col-span-5">
+                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">ชื่อรายการค่าใช้จ่าย</label>
+                    <input type="text" placeholder="เช่น ค่ากุ้งเผา, ค่าทางด่วน..." value={expenseTitle} onChange={(e) => setExpenseTitle(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-emerald-500 rounded-xl px-4 py-2.5 text-sm outline-none" />
+                  </div>
+                  <div className="sm:col-span-4">
+                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">จำนวนเงิน (บาท)</label>
+                    <input type="number" step="any" placeholder="0.00" value={expenseAmount} onChange={(e) => setExpenseAmount(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-emerald-500 rounded-xl px-4 py-2.5 text-sm outline-none font-mono" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-start">
+                  <div className="sm:col-span-6">
+                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">ใครเป็นคนออกเงินก่อน?</label>
+                    <select value={expensePayerId} onChange={(e) => setExpensePayerId(e.target.value)} disabled={friends.length === 0} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-emerald-500 rounded-xl px-3 py-2.5 text-sm outline-none text-slate-800 dark:text-slate-200">
+                      {friends.length === 0 ? <option value="">โปรดเพิ่มชื่อเพื่อนก่อน</option> : friends.map(f => <option key={f.id} value={f.id}>{f.name} (สำรองจ่าย)</option>)}
+                    </select>
+                  </div>
+                  <div className="sm:col-span-6">
+                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">แนบรูปใบเสร็จ / สลิป</label>
+                    <input type="file" accept="image/*" ref={fileInputRef} onChange={handleReceiptFileChange} className="w-full text-xs text-slate-500 dark:text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-emerald-500/15 file:text-emerald-700 dark:file:bg-slate-700 dark:file:text-emerald-300 hover:file:bg-emerald-500/25 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-2 py-1.5 outline-none cursor-pointer" />
+                    {receiptPreview && (
+                      <div className="mt-2 flex items-center justify-between bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-2">
+                        <div className="flex items-center gap-2.5">
+                          <img src={receiptPreview} alt="Receipt Preview" onClick={() => setViewingReceiptUrl(receiptPreview)} className="w-10 h-10 object-cover rounded-lg border border-emerald-500/40 cursor-pointer" />
+                          <div>
+                            <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">แนบรูปใบเสร็จแล้ว</p>
+                            <button type="button" onClick={() => setViewingReceiptUrl(receiptPreview)} className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline">ดูภาพขยาย</button>
+                          </div>
+                        </div>
+                        <button type="button" onClick={handleClearReceipt} className="text-xs text-rose-500 hover:text-rose-400 px-2 py-1 rounded-lg">ลบรูป</button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-medium text-slate-700 dark:text-slate-300">คนร่วมหารในบิลนี้</label>
+                    {friends.length > 0 && <button type="button" onClick={handleSelectAllParticipants} className="text-xs text-emerald-600 dark:text-emerald-400 hover:underline font-medium">{selectedParticipants.length === friends.length ? 'ยกเลิกทั้งหมด' : 'เลือกทุกคน'}</button>}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {friends.map((friend) => (
+                      <button key={friend.id} type="button" onClick={() => handleToggleParticipant(friend.id)} className={`px-3 py-1.5 rounded-xl text-xs font-medium flex items-center gap-1.5 border transition-all ${selectedParticipants.includes(friend.id) ? 'bg-emerald-500/15 border-emerald-500/60 text-emerald-700 dark:text-emerald-300 shadow-sm' : 'bg-slate-100 dark:bg-slate-900/50 border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-500'}`}>
+                        <Icon name={selectedParticipants.includes(friend.id) ? "check-square" : "square"} className="w-3.5 h-3.5" /> {friend.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <button type="submit" disabled={uploading || !expenseTitle.trim() || !expenseAmount || !expensePayerId || selectedParticipants.length === 0} className={`flex-1 disabled:opacity-50 text-white font-medium py-2.5 px-4 rounded-xl text-sm flex items-center justify-center gap-2 shadow-lg transition-all ${editingExpenseId ? 'bg-amber-600 hover:bg-amber-500' : 'bg-emerald-600 hover:bg-emerald-500'}`}>
+                    {uploading ? <><Icon name="loader" className="w-4 h-4 animate-spin" /> กำลังบันทึก...</> : editingExpenseId ? <><Icon name="check" className="w-4 h-4" /> บันทึกการแก้ไข</> : <><Icon name="plus" className="w-4 h-4" /> บันทึกรายการจ่ายนี้</>}
+                  </button>
+                </div>
+              </form>
+
+              <div className="mt-6 border-t border-slate-200 dark:border-slate-700/60 pt-4">
+                <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3 flex items-center justify-between">
+                  <span>รายการที่บันทึกแล้ว ({sortedExpenses.length})</span>
+                  <span className="text-xs font-normal">ยอดรวม: <strong className="text-emerald-600 dark:text-emerald-400 font-mono text-sm">฿{calculations.totalExpenseAmount.toLocaleString()}</strong></span>
+                </h3>
+                
+                {sortedExpenses.length === 0 ? (
+                  <div className="text-center py-5 text-slate-400 dark:text-slate-500 border border-dashed border-slate-300 dark:border-slate-700/60 rounded-xl text-xs">ยังไม่มีรายการค่าใช้จ่าย</div>
+                ) : (
+                  <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                    {sortedExpenses.map((exp) => {
+                      const payer = friends.find(f => f.id === exp.payerId);
+                      const pNames = exp.participantIds.map(pId => (friends.find(fr => fr.id === pId) || {}).name).filter(Boolean).join(', ');
+                      const isBeingEdited = editingExpenseId === exp.id;
+                      return (
+                        <div key={exp.id} className={`border rounded-xl p-3 flex items-center justify-between transition-all ${isBeingEdited ? 'bg-amber-500/10 border-amber-500' : 'bg-slate-50 dark:bg-slate-900/60 border-slate-200 dark:border-slate-700/50'}`}>
+                          <div className="overflow-hidden mr-2 space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[11px] bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-md font-medium">📅 {formatThaiDate(exp.date)}</span>
+                              <p className="font-medium text-slate-800 dark:text-slate-200 text-sm">{exp.title} - <span className="text-emerald-600 dark:text-emerald-400 font-mono font-semibold">฿{exp.amount.toLocaleString()}</span></p>
+                              {exp.receiptUrl && (
+                                <button type="button" onClick={() => setViewingReceiptUrl(exp.receiptUrl)} className="inline-flex items-center gap-1 text-[11px] bg-blue-500/15 text-blue-600 dark:text-blue-300 border border-blue-500/30 px-2 py-0.5 rounded-md hover:bg-blue-500/25 transition-colors"><Icon name="image" className="w-3 h-3" /> ดูใบเสร็จ</button>
+                              )}
+                            </div>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">จ่ายโดย: <span className="text-amber-600 dark:text-amber-300 font-medium">{payer ? payer.name : 'ไม่ระบุ'}</span> | หาร: <span className="text-slate-700 dark:text-slate-300 truncate">{pNames || 'ทุกคน'}</span></p>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button type="button" onClick={() => handleStartEditExpense(exp)} className="text-slate-500 hover:text-amber-500 p-1.5 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors flex items-center gap-1 text-xs"><Icon name="edit-2" className="w-4 h-4" /> <span className="hidden sm:inline">แก้ไข</span></button>
+                            <button type="button" onClick={() => handleDeleteExpense(exp.id)} className="text-slate-400 hover:text-rose-500 p-1.5 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors"><Icon name="trash-2" className="w-4 h-4" /></button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </section>
+
+            {/* Results Section */}
+            <section className="grid grid-cols-1 md:grid-cols-12 gap-6">
+              {/* ยอดรายคน */}
+              <div className="md:col-span-6 bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-5 shadow-md flex flex-col justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold flex items-center gap-2 mb-4"><Icon name="dollar-sign" className="w-5 h-5 text-teal-500 dark:text-teal-400" /> สรุปยอดรายคน/กลุ่ม</h2>
+                  <div className="space-y-2.5">
+                    {calculations.friendTotals.length === 0 ? (
+                      <p className="text-xs text-slate-400 dark:text-slate-500 text-center py-6">เพิ่มรายชื่อเพื่อนเพื่อดูสรุป</p>
+                    ) : (
+                      calculations.friendTotals.map((f) => (
+                        <div key={f.id} className="bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700/60 rounded-xl p-3 flex items-center justify-between text-xs">
+                          <div>
+                            <p className="font-semibold text-slate-800 dark:text-slate-200 text-sm">{f.name}</p>
+                            <p className="text-slate-500 dark:text-slate-400">จ่ายไป {f.paid.toLocaleString()} บ. (ควรจ่าย {f.shouldPay.toLocaleString('th-TH', { maximumFractionDigits: 1 })} บ.)</p>
+                          </div>
+                          <p className={`font-mono font-bold text-sm ${f.netBalance > 0.01 ? 'text-emerald-600 dark:text-emerald-400' : f.netBalance < -0.01 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400'}`}>
+                            {f.netBalance > 0.01 ? `+รับคืน ${f.netBalance.toLocaleString('th-TH', { maximumFractionDigits: 1 })}` : f.netBalance < -0.01 ? `ต้องจ่าย ${Math.abs(f.netBalance).toLocaleString('th-TH', { maximumFractionDigits: 1 })}` : 'สมดุล (0)'}
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* การโอนเงิน & ปุ่มบันทึก */}
+              <div className="md:col-span-6 bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-5 shadow-md flex flex-col justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold flex items-center gap-2 mb-4 text-amber-600 dark:text-amber-300"><Icon name="sparkles" className="w-5 h-5 text-amber-500 dark:text-amber-400" /> สรุปการโอนเงิน (เคลียร์ยอด)</h2>
+                  <div className="space-y-2.5 mb-4">
+                    {calculations.settlements.length === 0 ? (
+                      <div className="text-center py-6 bg-slate-50 dark:bg-slate-900/50 rounded-xl text-slate-400 text-sm border border-slate-200 dark:border-slate-800">
+                        {expenses.length === 0 ? 'ยังไม่มีรายการค่าใช้จ่าย' : '🎉 เคลียร์ยอดลงตัวเรียบร้อยแล้ว!'}
+                      </div>
+                    ) : (
+                      calculations.settlements.map((s, index) => (
+                        <div key={index} className="bg-slate-50 dark:bg-slate-900 border border-amber-500/40 rounded-xl p-3 flex items-center justify-between shadow-inner">
+                          <div>
+                            <span className="font-semibold text-sm flex items-center gap-1.5">
+                              <span className="text-slate-800 dark:text-slate-200">{s.fromName}</span>
+                              <span className="text-amber-600 dark:text-amber-400 text-xs">โอนให้ 👉</span>
+                              <span className="text-emerald-600 dark:text-emerald-300">{s.toName}</span>
+                            </span>
+                            {s.toPromptPay && <p className="text-xs text-indigo-600 dark:text-indigo-300 mt-0.5 font-mono">💳 พร้อมเพย์: {s.toPromptPay}</p>}
+                          </div>
+                          <span className="font-mono font-bold text-amber-600 dark:text-amber-400 text-sm">฿{s.amount.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-2 pt-2">
+                  <div className="flex gap-2">
+                    <button onClick={() => handleSaveToCloud(false)} disabled={saving || (friends.length === 0 && expenses.length === 0)} className="flex-1 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 text-slate-800 dark:text-slate-100 py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border border-slate-300 dark:border-slate-600">
+                      <Icon name="cloud-upload" className="w-4 h-4 text-amber-500 dark:text-amber-400" /> {saving ? "กำลังบันทึก..." : (currentTripId ? "💾 อัปเดตทริปนี้" : "☁️ บันทึกลง Cloud")}
+                    </button>
+                    {currentTripId && (
+                      <button onClick={() => handleSaveToCloud(true)} disabled={saving} className="bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-amber-700 dark:text-amber-300 py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center gap-1 border border-amber-500/40">
+                        <Icon name="copy-plus" className="w-4 h-4" /> บันทึกอันใหม่
+                      </button>
+                    )}
+                  </div>
+                  <button onClick={handleCopySummary} disabled={expenses.length === 0} className={`w-full py-3 px-4 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 shadow-lg ${copied ? 'bg-emerald-600 text-white' : 'bg-amber-500 hover:bg-amber-400 text-slate-950 disabled:opacity-50'}`}>
+                    <Icon name={copied ? "check" : "copy"} className="w-4 h-4" /> {copied ? 'คัดลอกสรุปเรียบร้อยแล้ว!' : 'คัดลอกสรุปข้อความ (ส่งลง LINE)'}
+                  </button>
+                </div>
+              </div>
+            </section>
+          </main>
+
+          {/* Modal จัดการสมุดรายชื่อเพื่อนถาวร */}
+          {showSavedFriendsModal && (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+              <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl flex flex-col max-h-[85vh]">
+                <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-3">
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                      <Icon name="book-user" className="w-5 h-5 text-indigo-500 dark:text-indigo-400" /> สมุดรายชื่อเพื่อนประจำ
+                    </h3>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">จัดการชื่อและพร้อมเพย์ที่จดจำไว้สำหรับใช้ทุกทริป</p>
+                  </div>
+                  <button onClick={() => { setShowSavedFriendsModal(false); setEditingSavedFriendId(null); setManageFriendName(''); setManageFriendPP(''); }} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm p-1">✕</button>
+                </div>
+
+                <form onSubmit={handleAddOrUpdateSavedFriend} className="bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
+                  <h4 className="text-xs font-semibold text-slate-600 dark:text-slate-400">{editingSavedFriendId ? '✏️ แก้ไขข้อมูลเพื่อนในสมุด' : '➕ เพิ่มเพื่อนใหม่ในสมุด'}</h4>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input type="text" placeholder="ชื่อเพื่อน..." value={manageFriendName} onChange={(e)=>setManageFriendName(e.target.value)} className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-indigo-500 rounded-xl px-3 py-2 text-sm outline-none" required />
+                    <input type="text" placeholder="พร้อมเพย์ (ถ้ามี)" value={manageFriendPP} onChange={(e)=>setManageFriendPP(e.target.value)} className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-indigo-500 rounded-xl px-3 py-2 text-sm font-mono outline-none" />
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="submit" disabled={!manageFriendName.trim()} className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2 rounded-xl text-xs shadow-sm transition-colors">
+                      {editingSavedFriendId ? 'บันทึกการแก้ไข' : 'เพิ่มลงสมุดถาวร'}
+                    </button>
+                    {editingSavedFriendId && (
+                      <button type="button" onClick={() => {setEditingSavedFriendId(null); setManageFriendName(''); setManageFriendPP('');}} className="px-3 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-medium transition-colors">ยกเลิก</button>
+                    )}
+                  </div>
+                </form>
+
+                <div className="overflow-y-auto space-y-2 flex-1 pr-1">
+                  {savedFriends.length === 0 ? (
+                    <div className="text-center py-8 text-slate-400 dark:text-slate-500 text-xs">ยังไม่มีเพื่อนในสมุดรายชื่อ</div>
+                  ) : (
+                    savedFriends.map(sf => {
+                      const isAdded = friends.some(f => f.name.toLowerCase() === sf.name.toLowerCase());
+                      return (
+                        <div key={sf.id} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 flex items-center justify-between shadow-sm">
+                          <div className="overflow-hidden mr-2">
+                            <p className="font-semibold text-slate-800 dark:text-slate-200 text-sm truncate">{sf.name}</p>
+                            {sf.promptPay ? (
+                              <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-mono mt-0.5">💳 PP: {sf.promptPay}</p>
+                            ) : (
+                              <p className="text-[10px] text-slate-400 mt-0.5">ไม่มีเลขพร้อมเพย์</p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              disabled={isAdded}
+                              onClick={() => handleAddFriendToTrip(sf.name, sf.promptPay || '', 1, false)}
+                              className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-colors ${
+                                isAdded
+                                  ? 'bg-slate-100 dark:bg-slate-700 text-slate-400 cursor-not-allowed'
+                                  : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 hover:bg-emerald-500/25'
+                              }`}
+                            >
+                              {isAdded ? 'เพิ่มแล้ว' : '+ ดึงเข้าทริป'}
+                            </button>
+                            <button type="button" onClick={() => { setEditingSavedFriendId(sf.id); setManageFriendName(sf.name); setManageFriendPP(sf.promptPay || ''); }} className="p-1.5 text-slate-400 hover:text-amber-500 dark:hover:text-amber-400 transition-colors" title="แก้ไข"><Icon name="edit-2" className="w-3.5 h-3.5"/></button>
+                            <button type="button" onClick={() => handleDeleteSavedFriend(sf.id)} className="p-1.5 text-slate-400 hover:text-rose-500 transition-colors" title="ลบ"><Icon name="trash-2" className="w-3.5 h-3.5"/></button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal ดูรูปใบเสร็จ */}
+          {viewingReceiptUrl && (
+            <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={() => setViewingReceiptUrl(null)}>
+              <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl max-w-lg w-full p-4 space-y-3 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-2">
+                  <h3 className="text-sm font-bold flex items-center gap-2"><Icon name="image" className="w-4 h-4 text-emerald-500" /> รูปใบเสร็จ / สลิป</h3>
+                  <button onClick={() => setViewingReceiptUrl(null)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm px-2">✕</button>
+                </div>
+                <div className="max-h-[70vh] overflow-auto flex justify-center bg-slate-100 dark:bg-slate-900 rounded-xl p-2">
+                  <img src={viewingReceiptUrl} alt="Receipt" className="max-w-full h-auto rounded-lg object-contain" />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <a href={viewingReceiptUrl} download={`receipt_${Date.now()}.jpg`} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1">ดาวน์โหลดรูป</a>
+                  <button onClick={() => setViewingReceiptUrl(null)} className="px-4 py-1.5 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-semibold">ปิด</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* History Modal */}
+          {showHistoryModal && (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+              <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl max-h-[85vh] flex flex-col">
+                <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-3">
+                  <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2"><Icon name="folder-clock" className="w-5 h-5 text-amber-500 dark:text-amber-400" /> ประวัติทริปบน Cloud</h3>
+                  <button onClick={() => setShowHistoryModal(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm p-1">✕</button>
+                </div>
+                <div className="overflow-y-auto space-y-3 flex-1 pr-1">
+                  {history.length === 0 ? <div className="text-center py-12 text-slate-400 text-sm">ยังไม่มีประวัติทริป</div> : history.map((record) => (
+                    <div key={record.id} className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 rounded-xl p-3.5 space-y-2">
+                      <div className="flex items-start justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
+                        <div>
+                          <h4 className="font-bold text-amber-600 dark:text-amber-300 text-sm">{record.tripName || 'ทริปไม่มีชื่อ'}</h4>
+                          <span className="text-[11px] text-slate-500">📅 บันทึกเมื่อ: {record.date}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => handleLoadTripForEdit(record)} className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1"><Icon name="edit-3" className="w-3.5 h-3.5" /> โหลด</button>
+                          <button onClick={(e) => handleDeleteHistoryRecord(record.id, e)} className="p-1 text-slate-400 hover:text-rose-500"><Icon name="trash-2" className="w-4 h-4" /></button>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-300">
+                        <span>ยอดรวม: <strong className="text-emerald-600 dark:text-emerald-400 font-mono">฿{record.totalAmount?.toLocaleString()}</strong></span>
+                        <span className="text-slate-500 dark:text-slate-400">({record.friendsCount || record.friendsData?.length || 0} คน / {record.expensesCount || record.expensesData?.length || 0} รายการ)</span>
+                      </div>
+                      <details className="text-xs">
+                        <summary className="cursor-pointer text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">ดูสรุปข้อความเดิม</summary>
+                        <pre className="mt-2 text-[11px] font-mono bg-slate-100 dark:bg-slate-950 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 whitespace-pre-wrap">
+                          {record.summaryText}
+                        </pre>
+                      </details>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Reset Modal */}
+          {showResetModal && (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+              <div className="bg-white dark:bg-slate-800 border rounded-2xl max-w-sm w-full p-6 space-y-4">
+                <h3 className="text-lg font-bold flex items-center gap-2 text-rose-500 dark:text-rose-400"><Icon name="alert-triangle" className="w-5 h-5" /> ยืนยันการเริ่มทริปใหม่?</h3>
+                <p className="text-sm text-slate-600 dark:text-slate-300">ข้อมูลหน้าปัจจุบันจะหายไป (ไม่กระทบประวัติทริปและสมุดรายชื่อเพื่อนที่เซฟแล้ว)</p>
+                <div className="flex gap-3 pt-2">
+                  <button onClick={() => setShowResetModal(false)} className="flex-1 px-4 py-2 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl text-sm font-medium hover:bg-slate-300 dark:hover:bg-slate-600">ยกเลิก</button>
+                  <button onClick={confirmReset} className="flex-1 px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-sm font-medium">เริ่มใหม่</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
